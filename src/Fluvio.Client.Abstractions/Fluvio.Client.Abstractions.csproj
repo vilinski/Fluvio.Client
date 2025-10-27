@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!-- NuGet Package Properties -->
+    <PackageId>Fluvio.Client.Abstractions</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Your Name</Authors>
+    <Company>Your Company</Company>
+    <Description>Abstractions and interfaces for Fluvio.Client - Pure managed .NET client for Fluvio streaming platform.</Description>
+    <PackageTags>fluvio;streaming;kafka;event-streaming;distributed-systems;abstractions</PackageTags>
+    <RepositoryUrl>https://github.com/yourusername/fluvio-dotnet-client</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/yourusername/fluvio-dotnet-client</PackageProjectUrl>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+</Project>
