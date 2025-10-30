@@ -59,7 +59,16 @@ public record PartitionMetadata(
 /// </summary>
 public enum TopicStatus
 {
+    /// <summary>
+    /// Topic is online and available.
+    /// </summary>
     Online,
+    /// <summary>
+    /// Topic is offline and unavailable.
+    /// </summary>
     Offline,
+    /// <summary>
+    /// Topic is provisioned but not yet online.
+    /// </summary>
     Provisioned
 }

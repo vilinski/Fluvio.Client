@@ -8,7 +8,7 @@ namespace Fluvio.Client.Protocol;
 /// </summary>
 internal sealed class FluvioBinaryWriter : IDisposable
 {
-    private readonly MemoryStream _stream;
+    internal readonly MemoryStream _stream;
     private readonly byte[] _buffer;
 
     public FluvioBinaryWriter()
@@ -27,6 +27,12 @@ internal sealed class FluvioBinaryWriter : IDisposable
     public void WriteInt16(short value)
     {
         BinaryPrimitives.WriteInt16BigEndian(_buffer, value);
+        _stream.Write(_buffer, 0, 2);
+    }
+
+    public void WriteUInt16(ushort value)
+    {
+        BinaryPrimitives.WriteUInt16BigEndian(_buffer, value);
         _stream.Write(_buffer, 0, 2);
     }
 
@@ -84,6 +90,52 @@ internal sealed class FluvioBinaryWriter : IDisposable
         _stream.WriteByte(value ? (byte)1 : (byte)0);
     }
 
+    /// <summary>
+    /// Write an optional value using Fluvio Option encoding (bool + optional value)
+    /// </summary>
+    /// <typeparam name="T">The type of value to write</typeparam>
+    /// <param name="value">The optional value (null for None)</param>
+    /// <param name="writeValue">Function to write the value if present</param>
+    public void WriteOption<T>(T? value, Action<T> writeValue) where T : struct
+    {
+        if (value.HasValue)
+        {
+            WriteBool(true);  // Some
+            writeValue(value.Value);
+        }
+        else
+        {
+            WriteBool(false); // None
+        }
+    }
+
+    /// <summary>
+    /// Write an optional reference type using Fluvio Option encoding (bool + optional value)
+    /// </summary>
+    /// <typeparam name="T">The type of value to write</typeparam>
+    /// <param name="value">The optional value (null for None)</param>
+    /// <param name="writeValue">Function to write the value if present</param>
+    public void WriteOptionRef<T>(T? value, Action<T> writeValue) where T : class
+    {
+        if (value != null)
+        {
+            WriteBool(true);  // Some
+            writeValue(value);
+        }
+        else
+        {
+            WriteBool(false); // None
+        }
+    }
+
+    /// <summary>
+    /// Write an optional string using Fluvio Option encoding (bool + optional string)
+    /// </summary>
+    public void WriteOptionString(string? value)
+    {
+        WriteOptionRef(value, WriteString);
+    }
+
     public void WriteVarInt(int value)
     {
         // ZigZag encoding for signed integers
@@ -94,6 +146,23 @@ internal sealed class FluvioBinaryWriter : IDisposable
     public void WriteUnsignedVarInt(uint value)
     {
         while ((value & ~0x7F) != 0)
+        {
+            _stream.WriteByte((byte)((value & 0x7F) | 0x80));
+            value >>= 7;
+        }
+        _stream.WriteByte((byte)value);
+    }
+
+    public void WriteVarLong(long value)
+    {
+        // ZigZag encoding for signed long integers
+        var unsigned = (ulong)((value << 1) ^ (value >> 63));
+        WriteUnsignedVarLong(unsigned);
+    }
+
+    public void WriteUnsignedVarLong(ulong value)
+    {
+        while ((value & ~0x7FUL) != 0)
         {
             _stream.WriteByte((byte)((value & 0x7F) | 0x80));
             value >>= 7;

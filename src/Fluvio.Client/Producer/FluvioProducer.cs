@@ -1,6 +1,7 @@
 using Fluvio.Client.Abstractions;
 using Fluvio.Client.Network;
 using Fluvio.Client.Protocol;
+using Fluvio.Client.Protocol.Records;
 
 namespace Fluvio.Client.Producer;
 
@@ -13,6 +14,12 @@ internal sealed class FluvioProducer : IFluvioProducer
     private readonly ProducerOptions _options;
     private readonly string? _clientId;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="FluvioProducer"/> class.
+    /// </summary>
+    /// <param name="connection">The Fluvio connection.</param>
+    /// <param name="options">Producer options.</param>
+    /// <param name="clientId">Optional client ID.</param>
     public FluvioProducer(FluvioConnection connection, ProducerOptions? options, string? clientId)
     {
         _connection = connection;
@@ -20,41 +27,68 @@ internal sealed class FluvioProducer : IFluvioProducer
         _clientId = clientId;
     }
 
+    /// <summary>
+    /// Sends a record to the specified topic.
+    /// </summary>
+    /// <param name="topic">Topic name.</param>
+    /// <param name="value">Record value.</param>
+    /// <param name="key">Optional record key.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Offset of the produced record.</returns>
     public async Task<long> SendAsync(string topic, ReadOnlyMemory<byte> value, ReadOnlyMemory<byte>? key = null, CancellationToken cancellationToken = default)
     {
         var offsets = await SendBatchAsync(topic, [new ProduceRecord(value, key)], cancellationToken);
         return offsets[0];
     }
 
+    /// <summary>
+    /// Sends a batch of records to the specified topic.
+    /// </summary>
+    /// <param name="topic">Topic name.</param>
+    /// <param name="records">Records to produce.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>List of offsets for produced records.</returns>
     public async Task<IReadOnlyList<long>> SendBatchAsync(string topic, IEnumerable<ProduceRecord> records, CancellationToken cancellationToken = default)
     {
-        // Build produce request
+        var recordList = records.ToList();
+
+        // Build produce request according to fluvio-spu-schema ProduceRequest structure
         using var writer = new FluvioBinaryWriter();
 
-        // Write topic name
-        writer.WriteString(topic);
+        // 1. transactional_id: Option<String>
+        // Option encoding: 0x00 for None, 0x01 + value for Some
+        writer.WriteBool(false); // None - no transactional_id
 
-        // Write partition (default to 0)
+        // 2. isolation: i16 (1 = ReadUncommitted, -1 = ReadCommitted)
+        writer.WriteInt16(1); // ReadUncommitted
+
+        // 3. timeout: i32 (milliseconds)
+        writer.WriteInt32((int)_options.Timeout.TotalMilliseconds);
+
+        // 4. topics: Vec<TopicProduceData>
+        writer.WriteInt32(1); // One topic
+
+        // TopicProduceData
+        writer.WriteString(topic); // topic name
+
+        // partitions: Vec<PartitionProduceData>
+        writer.WriteInt32(1); // One partition
+
+        // PartitionProduceData
+        writer.WriteInt32(0); // partition_index = 0
+
+        // records: RecordSet (i32 length + batches)
+        WriteRecordSet(writer, recordList);
+
+        // 5. smartmodules: Vec<SmartModuleInvocation> (empty for now)
         writer.WriteInt32(0);
-
-        // Write records
-        var recordList = records.ToList();
-        writer.WriteInt32(recordList.Count);
-
-        foreach (var record in recordList)
-        {
-            WriteRecord(writer, record);
-        }
-
-        // Write delivery guarantee flags
-        writer.WriteBool(_options.DeliveryGuarantee == DeliveryGuarantee.AtLeastOnce);
 
         var requestBody = writer.ToArray();
 
         // Send request
         var responseBytes = await _connection.SendRequestAsync(
             ApiKey.Produce,
-            0, // API version
+            25, // API version 25 (COMMON_VERSION in Fluvio)
             _clientId,
             requestBody,
             cancellationToken);
@@ -62,15 +96,33 @@ internal sealed class FluvioProducer : IFluvioProducer
         // Parse response
         using var reader = new FluvioBinaryReader(responseBytes);
 
-        // Read error code
-        var errorCode = (ErrorCode)reader.ReadInt16();
-        if (errorCode != ErrorCode.None)
+        // ProduceResponse structure:
+        // - topics: Vec<TopicProduceResponse>
+        var topicCount = reader.ReadInt32();
+        if (topicCount == 0)
         {
-            var errorMessage = reader.ReadString() ?? "Unknown error";
-            throw new FluvioException($"Produce failed: {errorCode} - {errorMessage}");
+            throw new FluvioException("No topics in produce response");
         }
 
-        // Read base offset
+        // TopicProduceResponse
+        var responseTopic = reader.ReadString();
+
+        // partitions: Vec<PartitionProduceResponse>
+        var partitionCount = reader.ReadInt32();
+        if (partitionCount == 0)
+        {
+            throw new FluvioException("No partitions in produce response");
+        }
+
+        // PartitionProduceResponse
+        var partitionIndex = reader.ReadInt32();
+        var errorCode = (ErrorCode)reader.ReadInt16();
+
+        if (errorCode != ErrorCode.None)
+        {
+            throw new FluvioException($"Produce failed with error code: {errorCode}");
+        }
+
         var baseOffset = reader.ReadInt64();
 
         // Generate offsets for each record
@@ -83,26 +135,36 @@ internal sealed class FluvioProducer : IFluvioProducer
         return offsets;
     }
 
-    private void WriteRecord(FluvioBinaryWriter writer, ProduceRecord record)
+    private void WriteRecordSet(FluvioBinaryWriter writer, List<ProduceRecord> records)
     {
-        // Record format:
-        // - key length + key (nullable)
-        // - value length + value
-        // - timestamp (current time)
-        // - headers count (0 for now)
+        // RecordSet encoding: length (i32) + batches
+        // For simplicity, we create one batch per RecordSet
 
-        writer.WriteNullableBytes(record.Key);
-        writer.WriteBytes(record.Value.Span);
-        writer.WriteInt64(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-        writer.WriteInt32(0); // No headers
+        // First encode the batch to get its size
+        using var batchWriter = new FluvioBinaryWriter();
+        var batch = Batch<List<ProduceRecord>>.Default(records);
+        batch.Encode(batchWriter);
+
+        var batchBytes = batchWriter.ToArray();
+
+        // Write RecordSet: length + batches
+        writer.WriteInt32(batchBytes.Length); // Total size of all batches
+        writer._stream.Write(batchBytes);     // The batch data
     }
 
+    /// <summary>
+    /// Flushes any pending records. (No-op in current implementation.)
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public Task FlushAsync(CancellationToken cancellationToken = default)
     {
         // In a full implementation, this would flush any buffered records
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Disposes the producer. (No-op, does not own connection.)
+    /// </summary>
     public ValueTask DisposeAsync()
     {
         // Producer doesn't own the connection, so nothing to dispose

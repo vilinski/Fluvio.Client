@@ -4,6 +4,12 @@
     <ProjectReference Include="..\Fluvio.Client.Abstractions\Fluvio.Client.Abstractions.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.10" />
+    <PackageReference Include="Polly" Version="8.6.4" />
+    <PackageReference Include="System.IO.Hashing" Version="9.0.10" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -25,6 +31,7 @@
 
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <InternalsVisibleTo Include="Fluvio.Client.Tests" />
   </ItemGroup>
 
 </Project>

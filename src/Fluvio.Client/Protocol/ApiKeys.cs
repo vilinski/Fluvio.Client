@@ -5,18 +5,35 @@ namespace Fluvio.Client.Protocol;
 /// </summary>
 internal enum ApiKey : short
 {
-    // Metadata APIs
-    ApiVersions = 18,
-    Metadata = 3,
 
-    // Producer APIs
+    // Producer APIs (SPU)
     Produce = 0,
 
-    // Consumer APIs
+    // Consumer APIs (SPU)
     Fetch = 1,
     ListOffsets = 2,
+    FetchOffsets = 1002,
+    StreamFetch = 1003,
+    UpdateOffsets = 1005,
+    UpdateConsumerOffset = 1006,
+    DeleteConsumerOffset = 1007,
+    FetchConsumerOffsets = 1008,
 
-    // Admin APIs
+    // Metadata APIs
+    Metadata = 3,
+    ApiVersions = 18,
+
+    // Admin APIs (SC - Stream Controller)
+    // Based on fluvio-sc-schema AdminPublicApiKey
+    // Note: AdminList = 1003 is for SC, StreamFetch = 1003 is for SPU (different ports)
+    AdminCreate = 1001,
+    AdminDelete = 1002,
+    AdminList = 1003,
+    AdminWatch = 1004,
+    AdminMirroring = 1005,
+    AdminUpdate = 1006,
+
+    // Legacy Admin APIs (deprecated, keeping for reference)
     CreateTopics = 19,
     DeleteTopics = 20,
     DescribeTopics = 75,

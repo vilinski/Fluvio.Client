@@ -12,7 +12,7 @@ internal sealed class RequestHeader
 
     public void WriteTo(FluvioBinaryWriter writer)
     {
-        writer.WriteInt16((short)ApiKey);
+        writer.WriteUInt16((ushort)ApiKey);
         writer.WriteInt16(ApiVersion);
         writer.WriteInt32(CorrelationId);
         writer.WriteString(ClientId);
@@ -22,7 +22,7 @@ internal sealed class RequestHeader
     {
         return new RequestHeader
         {
-            ApiKey = (ApiKey)reader.ReadInt16(),
+            ApiKey = (ApiKey)reader.ReadUInt16(),
             ApiVersion = reader.ReadInt16(),
             CorrelationId = reader.ReadInt32(),
             ClientId = reader.ReadString()

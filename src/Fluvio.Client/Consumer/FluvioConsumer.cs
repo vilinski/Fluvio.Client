@@ -2,6 +2,8 @@ using System.Runtime.CompilerServices;
 using Fluvio.Client.Abstractions;
 using Fluvio.Client.Network;
 using Fluvio.Client.Protocol;
+using Fluvio.Client.Protocol.Requests;
+using Fluvio.Client.Protocol.Responses;
 
 namespace Fluvio.Client.Consumer;
 
@@ -14,6 +16,12 @@ internal sealed class FluvioConsumer : IFluvioConsumer
     private readonly ConsumerOptions _options;
     private readonly string? _clientId;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="FluvioConsumer"/> class.
+    /// </summary>
+    /// <param name="connection">The Fluvio connection.</param>
+    /// <param name="options">Consumer options.</param>
+    /// <param name="clientId">Optional client ID.</param>
     public FluvioConsumer(FluvioConnection connection, ConsumerOptions? options, string? clientId)
     {
         _connection = connection;
@@ -21,33 +29,39 @@ internal sealed class FluvioConsumer : IFluvioConsumer
         _clientId = clientId;
     }
 
+    /// <summary>
+    /// Streams records from the specified topic starting at the given offset.
+    /// Uses persistent StreamFetch connection for high performance with zero polling delays.
+    /// </summary>
+    /// <param name="topic">Topic name.</param>
+    /// <param name="partition">Partition number.</param>
+    /// <param name="offset">Starting offset.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Async enumerable of consumed records.</returns>
     public async IAsyncEnumerable<ConsumeRecord> StreamAsync(
         string topic,
         int partition = 0,
         long offset = 0,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var currentOffset = offset;
+        // Use high-performance streaming consumer (persistent connection, zero polling)
+        var streamingConsumer = new StreamingConsumer(_connection, topic, partition, _options, _clientId);
 
-        while (!cancellationToken.IsCancellationRequested)
+        await foreach (var record in streamingConsumer.StreamAsync(offset, cancellationToken))
         {
-            var records = await FetchBatchAsync(topic, partition, currentOffset, _options.MaxBytes, cancellationToken);
-
-            if (records.Count == 0)
-            {
-                // No records available, wait a bit before polling again
-                await Task.Delay(100, cancellationToken);
-                continue;
-            }
-
-            foreach (var record in records)
-            {
-                yield return record;
-                currentOffset = record.Offset + 1;
-            }
+            yield return record;
         }
     }
 
+    /// <summary>
+    /// Fetches a batch of records from the specified topic.
+    /// </summary>
+    /// <param name="topic">Topic name.</param>
+    /// <param name="partition">Partition number.</param>
+    /// <param name="offset">Starting offset.</param>
+    /// <param name="maxBytes">Maximum bytes to fetch.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>List of consumed records.</returns>
     public async Task<IReadOnlyList<ConsumeRecord>> FetchBatchAsync(
         string topic,
         int partition = 0,
@@ -55,29 +69,223 @@ internal sealed class FluvioConsumer : IFluvioConsumer
         int maxBytes = 1024 * 1024,
         CancellationToken cancellationToken = default)
     {
-        // Build fetch request
+        // Build StreamFetch request (API 1003, version 18)
         using var writer = new FluvioBinaryWriter();
 
-        // Write topic name
+        // Mandatory fields (all versions)
+        // 1. topic (String with varint length)
         writer.WriteString(topic);
 
-        // Write partition
+        // 2. partition (i32)
         writer.WriteInt32(partition);
 
-        // Write fetch offset
+        // 3. fetch_offset (i64)
         writer.WriteInt64(offset);
 
-        // Write max bytes
+        // 4. max_bytes (i32)
         writer.WriteInt32(maxBytes);
 
-        // Write isolation level
+        // 5. isolation (u8)
         writer.WriteInt8((sbyte)(_options.IsolationLevel == IsolationLevel.ReadCommitted ? 1 : 0));
+
+        // Note: Version 10 for basic fetch without SmartModules
+        // No additional fields needed for version 10
 
         var requestBody = writer.ToArray();
 
-        // Send request
+        // Send StreamFetch request (API 1003, version 10 - basic fetch)
         var responseBytes = await _connection.SendRequestAsync(
-            ApiKey.Fetch,
+            ApiKey.StreamFetch,
+            10, // API version 10 (basic StreamFetch without SmartModules)
+            _clientId,
+            requestBody,
+            cancellationToken);
+
+        // Parse StreamFetchResponse
+        using var reader = new FluvioBinaryReader(responseBytes);
+
+        // 1. Read topic (String)
+        var responseTopic = reader.ReadString();
+        if (responseTopic != topic)
+        {
+            throw new FluvioException($"Topic mismatch: expected '{topic}', got '{responseTopic}'");
+        }
+
+        // 2. Read stream_id (u32)
+        var streamId = reader.ReadUInt32();
+
+        // 3. Read FetchablePartitionResponse
+        var partitionIndex = reader.ReadInt32();
+        var errorCode = (ErrorCode)reader.ReadInt16();
+
+        if (errorCode != ErrorCode.None)
+        {
+            throw new FluvioException($"Fetch failed: {errorCode}");
+        }
+
+        var highWaterMark = reader.ReadInt64();
+
+        // For version 10, we don't have next_filter_offset
+        // Skip log_start_offset (i64)
+        var logStartOffset = reader.ReadInt64();
+
+        // Skip aborted transactions (Option<Vec<AbortedTransaction>>)
+        // Option encoding: 0 = None, 1 = Some
+        var hasAborted = reader.ReadInt8() != 0;
+        if (hasAborted)
+        {
+            var abortedCount = reader.ReadInt32();
+            // Skip aborted transactions for now
+            for (int i = 0; i < abortedCount; i++)
+            {
+                reader.ReadInt64(); // producer_id
+                reader.ReadInt64(); // first_offset
+            }
+        }
+
+        // 4. Read RecordSet (batches)
+        try
+        {
+            var records = ReadRecordSet(reader);
+            return records;
+        }
+        catch (Exception ex)
+        {
+            throw new FluvioException($"Failed to parse record set: {ex.Message}", ex);
+        }
+    }
+
+    private List<ConsumeRecord> ReadRecordSet(FluvioBinaryReader reader)
+    {
+        var records = new List<ConsumeRecord>();
+
+        // RecordSet is length-prefixed (i32 length + data)
+        var recordSetLength = reader.ReadInt32();
+
+        if (recordSetLength <= 0)
+        {
+            return records; // Empty RecordSet
+        }
+
+        var recordSetEndPos = reader.Position + recordSetLength;
+
+        // RecordSet contains a sequence of batches
+        // Each batch has: base_offset (i64) + batch_len (i32) + batch_data
+
+        while (reader.Position < recordSetEndPos)
+        {
+            // Check if we have enough bytes for batch header
+            if (recordSetEndPos - reader.Position < 12) // 8 (base_offset) + 4 (batch_len)
+            {
+                break;
+            }
+
+            var baseOffset = reader.ReadInt64();
+            var batchLen = reader.ReadInt32();
+
+            if (batchLen <= 0 || recordSetEndPos - reader.Position < batchLen)
+            {
+                break; // Invalid or incomplete batch
+            }
+
+            // Read batch content
+            var batchStartPos = reader.Position;
+
+            // Skip batch header fields (we just need the records)
+            reader.ReadInt32(); // partition_leader_epoch
+            reader.ReadInt8();  // magic
+            reader.ReadUInt32(); // crc
+            reader.ReadInt16(); // attributes
+            reader.ReadInt32(); // last_offset_delta
+            reader.ReadInt64(); // first_timestamp
+            reader.ReadInt64(); // max_timestamp
+            reader.ReadInt64(); // producer_id
+            reader.ReadInt16(); // producer_epoch
+            reader.ReadInt32(); // first_sequence
+
+            // Check if batch has schema (bit 13 of attributes)
+            // Note: Schema ID support deferred until SmartModule integration is implemented
+            // Current implementation works for basic record batches without schemas
+
+            // Read record count
+            var recordCount = reader.ReadInt32();
+
+            // Read each record
+            for (int i = 0; i < recordCount; i++)
+            {
+                var recordLen = reader.ReadVarLong();
+                var recordStartPos = reader.Position;
+
+                // RecordHeader
+                var attributes = reader.ReadInt8();
+                var timestampDelta = reader.ReadVarLong();
+                var offsetDelta = reader.ReadVarLong();
+
+                // Key (Option<Bytes>)
+                var hasKey = reader.ReadInt8() != 0;
+                byte[]? key = null;
+                if (hasKey)
+                {
+                    var keyLen = reader.ReadVarLong();
+                    key = reader.ReadRawBytes((int)keyLen);
+                }
+
+                // Value (Bytes)
+                var valueLen = reader.ReadVarLong();
+                var value = reader.ReadRawBytes((int)valueLen);
+
+                // Headers (skip for now)
+                var headerCount = reader.ReadVarLong();
+                for (long h = 0; h < headerCount; h++)
+                {
+                    reader.ReadVarLong(); // header key len
+                    reader.ReadVarLong(); // header value len
+                }
+
+                // Calculate absolute offset
+                var absoluteOffset = baseOffset + offsetDelta;
+
+                records.Add(new ConsumeRecord(
+                    Offset: absoluteOffset,
+                    Value: value,
+                    Key: key,
+                    Timestamp: DateTimeOffset.FromUnixTimeMilliseconds(timestampDelta)));
+            }
+        }
+
+        return records;
+    }
+
+    /// <summary>
+    /// Fetches the last committed offset for a consumer from the cluster.
+    /// </summary>
+    public async Task<long?> FetchLastOffsetAsync(
+        string consumerId,
+        string topic,
+        int partition = 0,
+        CancellationToken cancellationToken = default)
+    {
+        // Build FetchConsumerOffsetsRequest
+        var request = new FetchConsumerOffsetsRequest
+        {
+            Filter = new FilterOptions
+            {
+                ReplicaId = new ReplicaKey
+                {
+                    Topic = topic,
+                    Partition = partition
+                },
+                ConsumerId = consumerId
+            }
+        };
+
+        using var writer = new FluvioBinaryWriter();
+        request.WriteTo(writer);
+        var requestBody = writer.ToArray();
+
+        // Send request (API 1008, version 0)
+        var responseBytes = await _connection.SendRequestAsync(
+            ApiKey.FetchConsumerOffsets,
             0, // API version
             _clientId,
             requestBody,
@@ -85,51 +293,60 @@ internal sealed class FluvioConsumer : IFluvioConsumer
 
         // Parse response
         using var reader = new FluvioBinaryReader(responseBytes);
+        var response = FetchConsumerOffsetsResponse.ReadFrom(reader);
 
-        // Read error code
-        var errorCode = (ErrorCode)reader.ReadInt16();
-        if (errorCode != ErrorCode.None)
+        if (response.ErrorCode != ErrorCode.None)
         {
-            var errorMessage = reader.ReadString() ?? "Unknown error";
-            throw new FluvioException($"Fetch failed: {errorCode} - {errorMessage}");
+            throw new FluvioException($"Failed to fetch consumer offset: {response.ErrorCode}");
         }
 
-        // Read high water mark
-        var highWaterMark = reader.ReadInt64();
-
-        // Read records count
-        var recordCount = reader.ReadInt32();
-        var records = new List<ConsumeRecord>(recordCount);
-
-        for (int i = 0; i < recordCount; i++)
-        {
-            var record = ReadRecord(reader);
-            records.Add(record);
-        }
-
-        return records;
+        // Return the offset if found, null otherwise
+        return response.Consumers.FirstOrDefault()?.Offset;
     }
 
-    private ConsumeRecord ReadRecord(FluvioBinaryReader reader)
+    /// <summary>
+    /// Commits (updates) the consumer offset for a specific topic/partition.
+    /// </summary>
+    public async Task CommitOffsetAsync(
+        string consumerId,
+        string topic,
+        int partition,
+        long offset,
+        uint sessionId,
+        CancellationToken cancellationToken = default)
     {
-        // Record format:
-        // - offset
-        // - key length + key (nullable)
-        // - value length + value
-        // - timestamp
+        // Build UpdateConsumerOffsetRequest
+        var request = new UpdateConsumerOffsetRequest
+        {
+            Offset = offset,
+            SessionId = sessionId
+        };
 
-        var offset = reader.ReadInt64();
-        var key = reader.ReadNullableBytes();
-        var value = reader.ReadBytes();
-        var timestamp = reader.ReadInt64();
+        using var writer = new FluvioBinaryWriter();
+        request.WriteTo(writer);
+        var requestBody = writer.ToArray();
 
-        return new ConsumeRecord(
-            Offset: offset,
-            Value: value,
-            Key: key,
-            Timestamp: DateTimeOffset.FromUnixTimeMilliseconds(timestamp));
+        // Send request (API 1006, version 0)
+        var responseBytes = await _connection.SendRequestAsync(
+            ApiKey.UpdateConsumerOffset,
+            0, // API version
+            _clientId,
+            requestBody,
+            cancellationToken);
+
+        // Parse response
+        using var reader = new FluvioBinaryReader(responseBytes);
+        var response = UpdateConsumerOffsetResponse.ReadFrom(reader);
+
+        if (response.ErrorCode != ErrorCode.None)
+        {
+            throw new FluvioException($"Failed to update consumer offset: {response.ErrorCode}");
+        }
     }
 
+    /// <summary>
+    /// Disposes the consumer. (No-op, does not own connection.)
+    /// </summary>
     public ValueTask DisposeAsync()
     {
         // Consumer doesn't own the connection, so nothing to dispose

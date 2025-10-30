@@ -39,6 +39,12 @@ internal sealed class FluvioBinaryReader : IDisposable
         return BinaryPrimitives.ReadInt16BigEndian(_buffer);
     }
 
+    public ushort ReadUInt16()
+    {
+        ReadExactly(_buffer, 0, 2);
+        return BinaryPrimitives.ReadUInt16BigEndian(_buffer);
+    }
+
     public int ReadInt32()
     {
         ReadExactly(_buffer, 0, 4);
@@ -66,6 +72,42 @@ internal sealed class FluvioBinaryReader : IDisposable
         var bytes = new byte[length];
         ReadExactly(bytes, 0, length);
         return Encoding.UTF8.GetString(bytes);
+    }
+
+    /// <summary>
+    /// Read an optional value using Fluvio Option encoding (bool + optional value)
+    /// </summary>
+    /// <typeparam name="T">The type of value to read</typeparam>
+    /// <param name="readValue">Function to read the value if present</param>
+    /// <returns>The optional value or null if None</returns>
+    public T? ReadOption<T>(Func<T> readValue) where T : struct
+    {
+        var hasValue = ReadBool();
+        if (!hasValue) return null;
+        return readValue();
+    }
+
+    /// <summary>
+    /// Read an optional reference type using Fluvio Option encoding (bool + optional value)
+    /// </summary>
+    /// <typeparam name="T">The type of value to read</typeparam>
+    /// <param name="readValue">Function to read the value if present</param>
+    /// <returns>The optional value or null if None</returns>
+    public T? ReadOptionRef<T>(Func<T> readValue) where T : class
+    {
+        var hasValue = ReadBool();
+        if (!hasValue) return null;
+        return readValue();
+    }
+
+    /// <summary>
+    /// Read optional string (Fluvio Option encoding: bool + value)
+    /// </summary>
+    public string? ReadOptionalString()
+    {
+        var hasValue = ReadBool();
+        if (!hasValue) return null;
+        return ReadString();
     }
 
     public byte[] ReadBytes()
@@ -122,6 +164,45 @@ internal sealed class FluvioBinaryReader : IDisposable
         }
 
         return result;
+    }
+
+    public long ReadVarLong()
+    {
+        var unsigned = ReadUnsignedVarLong();
+        // ZigZag decoding
+        return (long)(unsigned >> 1) ^ -(long)(unsigned & 1);
+    }
+
+    public ulong ReadUnsignedVarLong()
+    {
+        ulong result = 0;
+        int shift = 0;
+
+        while (true)
+        {
+            var b = _stream.ReadByte();
+            if (b == -1) throw new EndOfStreamException();
+
+            result |= (ulong)(b & 0x7F) << shift;
+            if ((b & 0x80) == 0) break;
+
+            shift += 7;
+            if (shift >= 64) throw new InvalidDataException("VarLong too long");
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Reads raw bytes without a length prefix
+    /// </summary>
+    public byte[] ReadRawBytes(int count)
+    {
+        if (count == 0) return Array.Empty<byte>();
+
+        var bytes = new byte[count];
+        ReadExactly(bytes, 0, count);
+        return bytes;
     }
 
     public void Skip(int count)
