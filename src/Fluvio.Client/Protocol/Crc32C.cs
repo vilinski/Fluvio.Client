@@ -1,5 +1,3 @@
-using System;
-
 namespace Fluvio.Client.Protocol;
 
 /// <summary>
@@ -18,8 +16,8 @@ internal static class Crc32C
 
         for (uint i = 0; i < 256; i++)
         {
-            uint crc = i;
-            for (int j = 0; j < 8; j++)
+            var crc = i;
+            for (var j = 0; j < 8; j++)
             {
                 if ((crc & 1) == 1)
                     crc = (crc >> 1) ^ polynomial;
@@ -39,11 +37,11 @@ internal static class Crc32C
 
     public static uint Compute(byte[] data, int offset, int length)
     {
-        uint crc = 0xFFFFFFFF; // Initial value
+        var crc = 0xFFFFFFFF; // Initial value
 
-        for (int i = offset; i < offset + length; i++)
+        for (var i = offset; i < offset + length; i++)
         {
-            byte index = (byte)((crc ^ data[i]) & 0xFF);
+            var index = (byte)((crc ^ data[i]) & 0xFF);
             crc = (crc >> 8) ^ Table[index];
         }
 

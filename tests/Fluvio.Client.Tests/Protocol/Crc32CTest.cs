@@ -1,19 +1,11 @@
 using System.Text;
 using Fluvio.Client.Protocol;
-using Xunit;
 using Xunit.Abstractions;
 
 namespace Fluvio.Client.Tests.Protocol;
 
-public class Crc32CTest
+public class Crc32CTest(ITestOutputHelper output)
 {
-    private readonly ITestOutputHelper _output;
-
-    public Crc32CTest(ITestOutputHelper output)
-    {
-        _output = output;
-    }
-
     [Fact]
     public void TestKnownVector()
     {
@@ -21,9 +13,9 @@ public class Crc32CTest
         var data = Encoding.ASCII.GetBytes("123456789");
         var crc = Crc32C.Compute(data);
 
-        _output.WriteLine($"Data: 123456789");
-        _output.WriteLine($"Calculated CRC: 0x{crc:X8}");
-        _output.WriteLine($"Expected CRC:   0xE3069283");
+        output.WriteLine($"Data: 123456789");
+        output.WriteLine($"Calculated CRC: 0x{crc:X8}");
+        output.WriteLine($"Expected CRC:   0xE3069283");
 
         Assert.Equal(0xE3069283u, crc);
     }

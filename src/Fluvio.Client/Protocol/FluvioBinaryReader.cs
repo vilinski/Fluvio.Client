@@ -6,29 +6,22 @@ namespace Fluvio.Client.Protocol;
 /// <summary>
 /// Binary reader for Fluvio protocol (big-endian, Kafka-inspired)
 /// </summary>
-internal sealed class FluvioBinaryReader : IDisposable
+internal sealed class FluvioBinaryReader(Stream stream) : IDisposable
 {
-    private readonly Stream _stream;
-    private readonly byte[] _buffer;
-
-    public FluvioBinaryReader(Stream stream)
-    {
-        _stream = stream;
-        _buffer = new byte[8];
-    }
+    private readonly byte[] _buffer = new byte[8];
 
     public FluvioBinaryReader(ReadOnlyMemory<byte> data)
         : this(new MemoryStream(data.ToArray()))
     {
     }
 
-    public long Position => _stream.Position;
-    public long Length => _stream.Length;
-    public bool EndOfStream => _stream.Position >= _stream.Length;
+    public long Position => stream.Position;
+    public long Length => stream.Length;
+    public bool EndOfStream => stream.Position >= stream.Length;
 
     public sbyte ReadInt8()
     {
-        var b = _stream.ReadByte();
+        var b = stream.ReadByte();
         if (b == -1) throw new EndOfStreamException();
         return (sbyte)b;
     }
@@ -113,8 +106,8 @@ internal sealed class FluvioBinaryReader : IDisposable
     public byte[] ReadBytes()
     {
         var length = ReadInt32();
-        if (length == -1) return Array.Empty<byte>();
-        if (length == 0) return Array.Empty<byte>();
+        if (length == -1) return [];
+        if (length == 0) return [];
 
         var bytes = new byte[length];
         ReadExactly(bytes, 0, length);
@@ -134,7 +127,7 @@ internal sealed class FluvioBinaryReader : IDisposable
 
     public bool ReadBool()
     {
-        var b = _stream.ReadByte();
+        var b = stream.ReadByte();
         if (b == -1) throw new EndOfStreamException();
         return b != 0;
     }
@@ -149,11 +142,11 @@ internal sealed class FluvioBinaryReader : IDisposable
     public uint ReadUnsignedVarInt()
     {
         uint result = 0;
-        int shift = 0;
+        var shift = 0;
 
         while (true)
         {
-            var b = _stream.ReadByte();
+            var b = stream.ReadByte();
             if (b == -1) throw new EndOfStreamException();
 
             result |= (uint)(b & 0x7F) << shift;
@@ -176,11 +169,11 @@ internal sealed class FluvioBinaryReader : IDisposable
     public ulong ReadUnsignedVarLong()
     {
         ulong result = 0;
-        int shift = 0;
+        var shift = 0;
 
         while (true)
         {
-            var b = _stream.ReadByte();
+            var b = stream.ReadByte();
             if (b == -1) throw new EndOfStreamException();
 
             result |= (ulong)(b & 0x7F) << shift;
@@ -198,7 +191,7 @@ internal sealed class FluvioBinaryReader : IDisposable
     /// </summary>
     public byte[] ReadRawBytes(int count)
     {
-        if (count == 0) return Array.Empty<byte>();
+        if (count == 0) return [];
 
         var bytes = new byte[count];
         ReadExactly(bytes, 0, count);
@@ -207,7 +200,7 @@ internal sealed class FluvioBinaryReader : IDisposable
 
     public void Skip(int count)
     {
-        _stream.Seek(count, SeekOrigin.Current);
+        stream.Seek(count, SeekOrigin.Current);
     }
 
     private void ReadExactly(byte[] buffer, int offset, int count)
@@ -215,7 +208,7 @@ internal sealed class FluvioBinaryReader : IDisposable
         var totalRead = 0;
         while (totalRead < count)
         {
-            var read = _stream.Read(buffer, offset + totalRead, count - totalRead);
+            var read = stream.Read(buffer, offset + totalRead, count - totalRead);
             if (read == 0) throw new EndOfStreamException();
             totalRead += read;
         }
@@ -223,6 +216,6 @@ internal sealed class FluvioBinaryReader : IDisposable
 
     public void Dispose()
     {
-        _stream?.Dispose();
+        stream?.Dispose();
     }
 }

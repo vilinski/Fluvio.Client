@@ -14,18 +14,12 @@ internal abstract class ReplicaSpec
     /// Computed replicas - Fluvio automatically assigns partitions
     /// Tag: 1
     /// </summary>
-    public sealed class Computed : ReplicaSpec
+    public sealed class Computed(int partitions, int replicationFactor, bool ignoreRackAssignment = false)
+        : ReplicaSpec
     {
-        public int Partitions { get; }
-        public int ReplicationFactor { get; }
-        public bool IgnoreRackAssignment { get; }
-
-        public Computed(int partitions, int replicationFactor, bool ignoreRackAssignment = false)
-        {
-            Partitions = partitions;
-            ReplicationFactor = replicationFactor;
-            IgnoreRackAssignment = ignoreRackAssignment;
-        }
+        public int Partitions { get; } = partitions;
+        public int ReplicationFactor { get; } = replicationFactor;
+        public bool IgnoreRackAssignment { get; } = ignoreRackAssignment;
 
         public override void Encode(FluvioBinaryWriter writer)
         {
@@ -42,14 +36,9 @@ internal abstract class ReplicaSpec
     /// Assigned replicas - manual partition-to-SPU mapping
     /// Tag: 0
     /// </summary>
-    public sealed class Assigned : ReplicaSpec
+    public sealed class Assigned(List<PartitionMap> partitionMaps) : ReplicaSpec
     {
-        public List<PartitionMap> PartitionMaps { get; }
-
-        public Assigned(List<PartitionMap> partitionMaps)
-        {
-            PartitionMaps = partitionMaps;
-        }
+        public List<PartitionMap> PartitionMaps { get; } = partitionMaps;
 
         public override void Encode(FluvioBinaryWriter writer)
         {
@@ -122,12 +111,12 @@ internal abstract class ReplicaSpec
     {
         var count = reader.ReadInt32();
         var maps = new List<PartitionMap>(count);
-        for (int i = 0; i < count; i++)
+        for (var i = 0; i < count; i++)
         {
             var partitionId = reader.ReadInt32();
             var replicaCount = reader.ReadInt32();
             var replicas = new List<int>(replicaCount);
-            for (int j = 0; j < replicaCount; j++)
+            for (var j = 0; j < replicaCount; j++)
             {
                 replicas.Add(reader.ReadInt32());
             }
@@ -207,14 +196,9 @@ internal enum CompressionAlgorithm : byte
 /// Cleanup policy - Rust enum with data
 /// enum CleanupPolicy { Segment(SegmentBasedPolicy) }
 /// </summary>
-internal class CleanupPolicy
+internal class CleanupPolicy(SegmentBasedPolicy segmentPolicy)
 {
-    public SegmentBasedPolicy SegmentPolicy { get; set; }
-
-    public CleanupPolicy(SegmentBasedPolicy segmentPolicy)
-    {
-        SegmentPolicy = segmentPolicy;
-    }
+    public SegmentBasedPolicy SegmentPolicy { get; set; } = segmentPolicy;
 
     public void Encode(FluvioBinaryWriter writer)
     {
@@ -237,33 +221,23 @@ internal class CleanupPolicy
 /// <summary>
 /// Segment-based cleanup policy
 /// </summary>
-internal class SegmentBasedPolicy
+internal class SegmentBasedPolicy(uint timeInSeconds)
 {
-    public uint TimeInSeconds { get; set; }
-
-    public SegmentBasedPolicy(uint timeInSeconds)
-    {
-        TimeInSeconds = timeInSeconds;
-    }
+    public uint TimeInSeconds { get; set; } = timeInSeconds;
 }
 
 /// <summary>
 /// Full TopicSpec with all optional fields
 /// Based on fluvio-controlplane-metadata TopicSpec
 /// </summary>
-internal class TopicSpecFull
+internal class TopicSpecFull(ReplicaSpec replicas)
 {
-    public ReplicaSpec Replicas { get; set; }
+    public ReplicaSpec Replicas { get; set; } = replicas;
     public CleanupPolicy? CleanupPolicy { get; set; } // min_version = 3
     public TopicStorageConfig? Storage { get; set; } // min_version = 4
     public CompressionAlgorithm CompressionType { get; set; } = CompressionAlgorithm.None; // min_version = 6
     public DeduplicationConfig? Deduplication { get; set; } // min_version = 12
     public bool System { get; set; } // min_version = 13
-
-    public TopicSpecFull(ReplicaSpec replicas)
-    {
-        Replicas = replicas;
-    }
 
     /// <summary>
     /// Create a simple computed topic spec
@@ -356,7 +330,7 @@ internal class TopicStorageConfig
 /// </summary>
 internal class DeduplicationConfig
 {
-    public List<DeduplicationBound> Bounds { get; set; } = new();
+    public List<DeduplicationBound> Bounds { get; set; } = [];
     public uint? Filter { get; set; }
 
     public void Encode(FluvioBinaryWriter writer)
@@ -373,7 +347,7 @@ internal class DeduplicationConfig
     {
         var boundCount = reader.ReadInt32();
         var bounds = new List<DeduplicationBound>(boundCount);
-        for (int i = 0; i < boundCount; i++)
+        for (var i = 0; i < boundCount; i++)
         {
             bounds.Add(DeduplicationBound.Decode(reader));
         }
@@ -491,13 +465,13 @@ internal class TopicStatusModel
         // IMPORTANT: BTreeMap count is u16 (2 bytes), not i32 (4 bytes)!
         var replicaMapCount = reader.ReadUInt16();
 
-        for (int i = 0; i < replicaMapCount; i++)
+        for (var i = 0; i < replicaMapCount; i++)
         {
             var partitionId = reader.ReadInt32();
             var replicaCount = reader.ReadInt32();
 
             var replicas = new List<int>(replicaCount);
-            for (int j = 0; j < replicaCount; j++)
+            for (var j = 0; j < replicaCount; j++)
             {
                 replicas.Add(reader.ReadInt32());
             }

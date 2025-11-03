@@ -1,12 +1,9 @@
-using System;
-using System.Collections.Generic;
 using System.Runtime.CompilerServices;
-using System.Threading;
 using System.Threading.Channels;
-using System.Threading.Tasks;
 using Fluvio.Client.Abstractions;
 using Fluvio.Client.Network;
 using Fluvio.Client.Protocol;
+using Microsoft.Extensions.Logging;
 
 namespace Fluvio.Client.Consumer;
 
@@ -15,31 +12,18 @@ namespace Fluvio.Client.Consumer;
 /// Based on Rust implementation architecture with .NET idioms (Channels, IAsyncEnumerable).
 /// Zero polling delays - records stream continuously.
 /// </summary>
-internal sealed class StreamingConsumer : IAsyncDisposable
+internal sealed class StreamingConsumer(
+    FluvioConnection connection,
+    string topic,
+    int partition,
+    ConsumerOptions options,
+    string? clientId,
+    ILogger? logger = null)
+    : IAsyncDisposable
 {
-    private readonly FluvioConnection _connection;
-    private readonly string _topic;
-    private readonly int _partition;
-    private readonly ConsumerOptions _options;
-    private readonly string? _clientId;
-
     private Channel<ConsumeRecord>? _recordChannel;
     private Task? _streamReaderTask;
     private CancellationTokenSource? _streamCts;
-
-    public StreamingConsumer(
-        FluvioConnection connection,
-        string topic,
-        int partition,
-        ConsumerOptions options,
-        string? clientId)
-    {
-        _connection = connection;
-        _topic = topic;
-        _partition = partition;
-        _options = options;
-        _clientId = clientId;
-    }
 
     /// <summary>
     /// Streams records continuously from a persistent StreamFetch connection.
@@ -78,18 +62,18 @@ internal sealed class StreamingConsumer : IAsyncDisposable
 
             // Build StreamFetch request
             using var writer = new FluvioBinaryWriter();
-            writer.WriteString(_topic);
-            writer.WriteInt32(_partition);
+            writer.WriteString(topic);
+            writer.WriteInt32(partition);
             writer.WriteInt64(startOffset);
-            writer.WriteInt32(_options.MaxBytes);
-            writer.WriteInt8((sbyte)(_options.IsolationLevel == IsolationLevel.ReadCommitted ? 1 : 0));
+            writer.WriteInt32(options.MaxBytes);
+            writer.WriteInt8((sbyte)(options.IsolationLevel == IsolationLevel.ReadCommitted ? 1 : 0));
             var requestBody = writer.ToArray();
 
             // Send SINGLE StreamFetch request and get streaming channel
-            var responseStream = await _connection.SendStreamingRequestAsync(
+            var responseStream = await connection.SendStreamingRequestAsync(
                 ApiKey.StreamFetch,
                 10,
-                _clientId,
+                clientId,
                 requestBody,
                 cancellationToken);
 
@@ -111,7 +95,7 @@ internal sealed class StreamingConsumer : IAsyncDisposable
                 catch (Exception ex)
                 {
                     // Log parse error but continue streaming
-                    Console.WriteLine($"Parse error: {ex.Message}");
+                    logger?.LogWarning(ex, "Failed to parse StreamFetch response for topic {Topic}, partition {Partition}", topic, partition);
                 }
             }
         }
@@ -122,7 +106,7 @@ internal sealed class StreamingConsumer : IAsyncDisposable
         catch (Exception ex)
         {
             // Stream error - could implement reconnection logic here
-            Console.WriteLine($"Stream error: {ex.Message}");
+            logger?.LogError(ex, "StreamFetch error for topic {Topic}, partition {Partition}", topic, partition);
         }
         finally
         {
@@ -141,9 +125,9 @@ internal sealed class StreamingConsumer : IAsyncDisposable
 
         // 1. Read topic (String)
         var responseTopic = reader.ReadString();
-        if (responseTopic != _topic)
+        if (responseTopic != topic)
         {
-            throw new FluvioException($"Topic mismatch: expected '{_topic}', got '{responseTopic}'");
+            throw new FluvioException($"Topic mismatch: expected '{topic}', got '{responseTopic}'");
         }
 
         // 2. Read stream_id (u32)
@@ -166,7 +150,7 @@ internal sealed class StreamingConsumer : IAsyncDisposable
         if (hasAborted)
         {
             var abortedCount = reader.ReadInt32();
-            for (int i = 0; i < abortedCount; i++)
+            for (var i = 0; i < abortedCount; i++)
             {
                 reader.ReadInt64(); // producer_id
                 reader.ReadInt64(); // first_offset
@@ -219,7 +203,7 @@ internal sealed class StreamingConsumer : IAsyncDisposable
 
             var recordCount = reader.ReadInt32();
 
-            for (int i = 0; i < recordCount; i++)
+            for (var i = 0; i < recordCount; i++)
             {
                 var recordLen = reader.ReadVarLong();
                 var attributes = reader.ReadInt8();
@@ -260,7 +244,8 @@ internal sealed class StreamingConsumer : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         // Cancel the background stream reader
-        _streamCts?.Cancel();
+        if (_streamCts != null)
+            await _streamCts.CancelAsync();
 
         // Wait for reader to complete
         if (_streamReaderTask != null)

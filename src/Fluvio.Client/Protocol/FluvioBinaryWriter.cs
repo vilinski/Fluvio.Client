@@ -8,14 +8,8 @@ namespace Fluvio.Client.Protocol;
 /// </summary>
 internal sealed class FluvioBinaryWriter : IDisposable
 {
-    internal readonly MemoryStream _stream;
-    private readonly byte[] _buffer;
-
-    public FluvioBinaryWriter()
-    {
-        _stream = new MemoryStream();
-        _buffer = new byte[8]; // For primitive type conversions
-    }
+    internal readonly MemoryStream _stream = new();
+    private readonly byte[] _buffer = new byte[8]; // For primitive type conversions
 
     public int Position => (int)_stream.Position;
 

@@ -3,7 +3,6 @@ using System.Net.Security;
 using System.Net.Sockets;
 using System.Threading.Channels;
 using Fluvio.Client.Protocol;
-using Fluvio.Client.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Polly;
@@ -13,21 +12,23 @@ namespace Fluvio.Client.Network;
 /// <summary>
 /// Manages TCP connection to Fluvio SPU or SC
 /// </summary>
-internal sealed class FluvioConnection : IAsyncDisposable
+internal sealed class FluvioConnection(
+    string host,
+    int port,
+    bool useTls,
+    TimeSpan timeout,
+    ILogger<FluvioConnection>? logger = null,
+    IAsyncPolicy? resiliencePolicy = null)
+    : IAsyncDisposable
 {
-    private readonly string _host;
-    private readonly int _port;
-    private readonly bool _useTls;
-    private readonly TimeSpan _timeout;
-    private readonly ILogger<FluvioConnection> _logger;
-    private readonly IAsyncPolicy? _resiliencePolicy;
+    private readonly ILogger<FluvioConnection> _logger = logger ?? NullLoggerFactory.Instance.CreateLogger<FluvioConnection>();
 
     private TcpClient? _tcpClient;
     private Stream? _stream;
     private int _nextCorrelationId;
-    private readonly ConcurrentDictionary<int, TaskCompletionSource<ReadOnlyMemory<byte>>> _pendingRequests;
-    private readonly ConcurrentDictionary<int, Channel<ReadOnlyMemory<byte>>> _streamingRequests;
-    private readonly SemaphoreSlim _writeLock;
+    private readonly ConcurrentDictionary<int, TaskCompletionSource<ReadOnlyMemory<byte>>> _pendingRequests = new();
+    private readonly ConcurrentDictionary<int, Channel<ReadOnlyMemory<byte>>> _streamingRequests = new();
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
     private Task? _readLoopTask;
     private CancellationTokenSource? _readLoopCts;
 
@@ -35,38 +36,25 @@ internal sealed class FluvioConnection : IAsyncDisposable
 
     public DateTime? LastSuccessfulRequest { get; private set; }
 
-    public FluvioConnection(string host, int port, bool useTls, TimeSpan timeout, ILogger<FluvioConnection>? logger = null, IAsyncPolicy? resiliencePolicy = null)
-    {
-        _host = host;
-        _port = port;
-        _useTls = useTls;
-        _timeout = timeout;
-        _logger = logger ?? NullLoggerFactory.Instance.CreateLogger<FluvioConnection>();
-        _resiliencePolicy = resiliencePolicy;
-        _pendingRequests = new ConcurrentDictionary<int, TaskCompletionSource<ReadOnlyMemory<byte>>>();
-        _streamingRequests = new ConcurrentDictionary<int, Channel<ReadOnlyMemory<byte>>>();
-        _writeLock = new SemaphoreSlim(1, 1);
-    }
-
     public async Task ConnectAsync(CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Connecting to Fluvio at {Host}:{Port} (TLS: {UseTls})", _host, _port, _useTls);
+        _logger.LogInformation("Connecting to Fluvio at {Host}:{Port} (TLS: {UseTls})", host, port, useTls);
 
         async Task ConnectCore()
         {
             _tcpClient = new TcpClient();
 
-            using var timeoutCts = new CancellationTokenSource(_timeout);
+            using var timeoutCts = new CancellationTokenSource(timeout);
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
-            await _tcpClient.ConnectAsync(_host, _port, linkedCts.Token);
-            _logger.LogDebug("TCP connection established to {Host}:{Port}", _host, _port);
+            await _tcpClient.ConnectAsync(host, port, linkedCts.Token);
+            _logger.LogDebug("TCP connection established to {Host}:{Port}", host, port);
 
-            if (_useTls)
+            if (useTls)
             {
                 _logger.LogDebug("Establishing TLS connection");
                 var sslStream = new SslStream(_tcpClient.GetStream(), false);
-                await sslStream.AuthenticateAsClientAsync(_host, null, System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13, true);
+                await sslStream.AuthenticateAsClientAsync(host, null, System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13, true);
                 _stream = sslStream;
                 _logger.LogDebug("TLS connection established");
             }
@@ -82,20 +70,20 @@ internal sealed class FluvioConnection : IAsyncDisposable
 
         try
         {
-            if (_resiliencePolicy != null)
+            if (resiliencePolicy != null)
             {
-                await _resiliencePolicy.ExecuteAsync(ConnectCore);
+                await resiliencePolicy.ExecuteAsync(ConnectCore);
             }
             else
             {
                 await ConnectCore();
             }
 
-            _logger.LogInformation("Successfully connected to {Host}:{Port}", _host, _port);
+            _logger.LogInformation("Successfully connected to {Host}:{Port}", host, port);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to connect to {Host}:{Port}", _host, _port);
+            _logger.LogError(ex, "Failed to connect to {Host}:{Port}", host, port);
             throw;
         }
     }
@@ -153,10 +141,10 @@ internal sealed class FluvioConnection : IAsyncDisposable
             }
 
             // Wait for response
-            using var timeoutCts = new CancellationTokenSource(_timeout);
+            using var timeoutCts = new CancellationTokenSource(timeout);
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
-            using (linkedCts.Token.Register(() => tcs.TrySetCanceled()))
+            await using (linkedCts.Token.Register(() => tcs.TrySetCanceled()))
             {
                 var response = await tcs.Task;
                 LastSuccessfulRequest = DateTime.UtcNow;
@@ -376,7 +364,7 @@ internal sealed class FluvioConnection : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        _logger.LogDebug("Disposing connection to {Host}:{Port}", _host, _port);
+        _logger.LogDebug("Disposing connection to {Host}:{Port}", host, port);
 
         if (_readLoopCts != null)
         {
@@ -399,6 +387,6 @@ internal sealed class FluvioConnection : IAsyncDisposable
         _tcpClient?.Dispose();
         _writeLock.Dispose();
 
-        _logger.LogInformation("Connection disposed: {Host}:{Port}", _host, _port);
+        _logger.LogInformation("Connection disposed: {Host}:{Port}", host, port);
     }
 }

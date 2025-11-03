@@ -52,25 +52,39 @@ dotnet add reference path/to/Fluvio.Client/Fluvio.Client.csproj
 using Fluvio.Client;
 using Fluvio.Client.Abstractions;
 
-// Create client with default options (localhost:9003)
+// Connect using config from ~/.fluvio/config (active profile)
 await using var client = await FluvioClient.ConnectAsync();
 
-// Or with custom options
+// Or specify a different profile
+await using var client = await FluvioClient.ConnectAsync(
+    new FluvioClientOptions(Profile: "cloud")
+);
+
+// Or with fully custom options (overrides config)
 var options = new FluvioClientOptions(
-    Endpoint: "localhost:9003",
+    Endpoint: "localhost:9010",
+    ScEndpoint: "localhost:9003",
     UseTls: false,
     ClientId: "my-app"
 );
 await using var client = await FluvioClient.ConnectAsync(options);
 ```
 
+**Configuration Priority:**
+1. Explicitly provided options
+2. `~/.fluvio/config` (active profile or specified profile)
+3. Defaults (localhost:9010 for SPU, localhost:9003 for SC, TLS off)
+
 ### 2. Create a Topic
 
 ```csharp
 var admin = client.Admin();
 
-// Create a topic with 3 partitions
-await admin.CreateTopicAsync("my-topic", new TopicSpec(
+// Create a topic with defaults (1 partition, replication factor 1)
+await admin.CreateTopicAsync("my-topic");
+
+// Or create with custom settings
+await admin.CreateTopicAsync("large-topic", new TopicSpec(
     Partitions: 3,
     ReplicationFactor: 1
 ));
@@ -113,6 +127,7 @@ var offsets = await producer.SendBatchAsync("my-topic", records);
 ### 4. Consume Messages
 
 ```csharp
+// Create consumer with defaults
 var consumer = client.Consumer();
 
 // Stream messages continuously from beginning
@@ -138,7 +153,9 @@ foreach (var record in records)
 ```csharp
 var producer = client.Producer(new ProducerOptions(
     BatchSize: 1000,
+    MaxRequestSize: 1024 * 1024,  // 1 MB (matches Rust client)
     LingerTime: TimeSpan.FromMilliseconds(100),
+    Timeout: TimeSpan.FromSeconds(5),  // Default: 5 seconds
     DeliveryGuarantee: DeliveryGuarantee.AtLeastOnce
 ));
 
@@ -149,12 +166,19 @@ await producer.SendAsync("my-topic", messageBytes);
 await producer.FlushAsync();
 ```
 
+**Producer Options:**
+- `BatchSize`: Number of records per batch (default: 1000)
+- `MaxRequestSize`: Max size in bytes for a single request (default: 1 MB)
+- `LingerTime`: How long to wait for more records before sending (default: 0)
+- `Timeout`: Request timeout (default: 5 seconds)
+- `DeliveryGuarantee`: At least once or at most once (default: AtLeastOnce)
+
 ### Consumer with Configuration
 
 ```csharp
 var consumer = client.Consumer(new ConsumerOptions(
-    MaxBytes: 1024 * 1024,  // 1MB batch size
-    IsolationLevel: IsolationLevel.ReadCommitted
+    MaxBytes: 1024 * 1024,  // 1 MB batch size (default)
+    IsolationLevel: IsolationLevel.ReadCommitted  // Default
 ));
 
 // Stream from specific offset
@@ -163,6 +187,10 @@ await foreach (var record in consumer.StreamAsync("my-topic", partition: 0, offs
     // Process record...
 }
 ```
+
+**Consumer Options:**
+- `MaxBytes`: Maximum bytes to fetch per request (default: 1 MB)
+- `IsolationLevel`: Read committed or read uncommitted (default: ReadCommitted)
 
 ### Working with JSON Messages
 
@@ -194,7 +222,8 @@ await foreach (var record in consumer.StreamAsync("events", offset: 0))
 ```csharp
 try
 {
-    await admin.CreateTopicAsync("my-topic", new TopicSpec(Partitions: 1));
+    // Create topic with defaults
+    await admin.CreateTopicAsync("my-topic");
 }
 catch (FluvioException ex)
 {

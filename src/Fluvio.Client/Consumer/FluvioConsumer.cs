@@ -4,6 +4,7 @@ using Fluvio.Client.Network;
 using Fluvio.Client.Protocol;
 using Fluvio.Client.Protocol.Requests;
 using Fluvio.Client.Protocol.Responses;
+using Microsoft.Extensions.Logging;
 
 namespace Fluvio.Client.Consumer;
 
@@ -15,6 +16,7 @@ internal sealed class FluvioConsumer : IFluvioConsumer
     private readonly FluvioConnection _connection;
     private readonly ConsumerOptions _options;
     private readonly string? _clientId;
+    private readonly ILogger? _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="FluvioConsumer"/> class.
@@ -22,11 +24,13 @@ internal sealed class FluvioConsumer : IFluvioConsumer
     /// <param name="connection">The Fluvio connection.</param>
     /// <param name="options">Consumer options.</param>
     /// <param name="clientId">Optional client ID.</param>
-    public FluvioConsumer(FluvioConnection connection, ConsumerOptions? options, string? clientId)
+    /// <param name="logger">Optional logger.</param>
+    public FluvioConsumer(FluvioConnection connection, ConsumerOptions? options, string? clientId, ILogger? logger = null)
     {
         _connection = connection;
         _options = options ?? new ConsumerOptions();
         _clientId = clientId;
+        _logger = logger;
     }
 
     /// <summary>
@@ -44,9 +48,7 @@ internal sealed class FluvioConsumer : IFluvioConsumer
         long offset = 0,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        // Use high-performance streaming consumer (persistent connection, zero polling)
-        var streamingConsumer = new StreamingConsumer(_connection, topic, partition, _options, _clientId);
-
+        var streamingConsumer = new StreamingConsumer(_connection, topic, partition, _options, _clientId, _logger);
         await foreach (var record in streamingConsumer.StreamAsync(offset, cancellationToken))
         {
             yield return record;
@@ -136,7 +138,7 @@ internal sealed class FluvioConsumer : IFluvioConsumer
         {
             var abortedCount = reader.ReadInt32();
             // Skip aborted transactions for now
-            for (int i = 0; i < abortedCount; i++)
+            for (var i = 0; i < abortedCount; i++)
             {
                 reader.ReadInt64(); // producer_id
                 reader.ReadInt64(); // first_offset
@@ -211,7 +213,7 @@ internal sealed class FluvioConsumer : IFluvioConsumer
             var recordCount = reader.ReadInt32();
 
             // Read each record
-            for (int i = 0; i < recordCount; i++)
+            for (var i = 0; i < recordCount; i++)
             {
                 var recordLen = reader.ReadVarLong();
                 var recordStartPos = reader.Position;

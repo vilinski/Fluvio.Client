@@ -1,5 +1,4 @@
 using Fluvio.Client.Protocol;
-using Xunit;
 
 namespace Fluvio.Client.Tests.Protocol;
 

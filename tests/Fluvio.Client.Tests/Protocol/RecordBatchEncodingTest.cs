@@ -1,7 +1,5 @@
-using System.Text;
 using Fluvio.Client.Abstractions;
 using Fluvio.Client.Protocol;
-using Xunit;
 using Xunit.Abstractions;
 
 namespace Fluvio.Client.Tests.Protocol;
@@ -10,15 +8,8 @@ namespace Fluvio.Client.Tests.Protocol;
 /// Test RecordBatch encoding to match the Rust test:
 /// https://github.com/infinyon/fluvio/blob/master/crates/fluvio-protocol/src/record/batch.rs#test_encode_and_decode_batch_basic
 /// </summary>
-public class RecordBatchEncodingTest
+public class RecordBatchEncodingTest(ITestOutputHelper output)
 {
-    private readonly ITestOutputHelper _output;
-
-    public RecordBatchEncodingTest(ITestOutputHelper output)
-    {
-        _output = output;
-    }
-
     [Fact]
     public void EncodeRecordBatch_MatchesRustTest()
     {
@@ -58,7 +49,7 @@ public class RecordBatchEncodingTest
         recordWriter.WriteVarLong(0);
 
         var recordContent = recordWriter.ToArray();
-        _output.WriteLine($"Record content: {BitConverter.ToString(recordContent).Replace("-", " ")}");
+        output.WriteLine($"Record content: {BitConverter.ToString(recordContent).Replace("-", " ")}");
 
         // Encode as Vec<Record> - needs count prefix first!
         using var recordsWriter = new FluvioBinaryWriter();
@@ -71,7 +62,7 @@ public class RecordBatchEncodingTest
         recordsWriter._stream.Write(recordContent);
 
         var recordsBytes = recordsWriter.ToArray();
-        _output.WriteLine($"Records bytes: {BitConverter.ToString(recordsBytes).Replace("-", " ")}");
+        output.WriteLine($"Records bytes: {BitConverter.ToString(recordsBytes).Replace("-", " ")}");
 
         // Build the CRC-protected section (attributes through records)
         using var crcBufferWriter = new FluvioBinaryWriter();
@@ -88,18 +79,18 @@ public class RecordBatchEncodingTest
         crcBufferWriter._stream.Write(recordsBytes);
 
         var crcBuffer = crcBufferWriter.ToArray();
-        _output.WriteLine($"CRC buffer ({crcBuffer.Length} bytes): {BitConverter.ToString(crcBuffer).Replace("-", " ")}");
+        output.WriteLine($"CRC buffer ({crcBuffer.Length} bytes): {BitConverter.ToString(crcBuffer).Replace("-", " ")}");
 
         // Calculate CRC over the entire buffer
         var hashBytes = System.IO.Hashing.Crc32.Hash(crcBuffer);
-        _output.WriteLine($"Hash bytes (.NET built-in): {BitConverter.ToString(hashBytes)}");
+        output.WriteLine($"Hash bytes (.NET built-in): {BitConverter.ToString(hashBytes)}");
 
         var crc32c = Crc32C.Compute(crcBuffer);
-        _output.WriteLine($"CRC32C (custom impl): {crc32c} (0x{crc32c:X8})");
+        output.WriteLine($"CRC32C (custom impl): {crc32c} (0x{crc32c:X8})");
 
         var crc = Crc32.Compute(crcBuffer);
-        _output.WriteLine($"Calculated CRC: {crc} (0x{crc:X8})");
-        _output.WriteLine($"Expected CRC:   {expectedCrc} (0x{expectedCrc:X8})");
+        output.WriteLine($"Calculated CRC: {crc} (0x{crc:X8})");
+        output.WriteLine($"Expected CRC:   {expectedCrc} (0x{expectedCrc:X8})");
 
         // Calculate batch_len
         var batchLen = 4 + 1 + crcBuffer.Length + 4; // partition_leader_epoch + magic + crcBuffer + crc
@@ -113,8 +104,8 @@ public class RecordBatchEncodingTest
         writer._stream.Write(crcBuffer);
 
         var batchBytes = writer.ToArray();
-        _output.WriteLine($"\nComplete batch ({batchBytes.Length} bytes):");
-        _output.WriteLine(BitConverter.ToString(batchBytes).Replace("-", " "));
+        output.WriteLine($"\nComplete batch ({batchBytes.Length} bytes):");
+        output.WriteLine(BitConverter.ToString(batchBytes).Replace("-", " "));
 
         // Verify CRC matches Rust test
         Assert.Equal(expectedCrc, crc);

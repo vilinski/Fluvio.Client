@@ -16,28 +16,30 @@ internal sealed class FetchConsumerOffsetsResponse
     /// <summary>
     /// List of consumer offsets matching the filter.
     /// </summary>
-    public List<ConsumerOffsetInfo> Consumers { get; set; } = new();
+    public List<ConsumerOffsetInfo> Consumers { get; set; } = [];
 
     /// <summary>
     /// Reads the response from the binary reader.
     /// </summary>
     public static FetchConsumerOffsetsResponse ReadFrom(FluvioBinaryReader reader)
     {
-        var response = new FetchConsumerOffsetsResponse();
-
         // Read error code
-        response.ErrorCode = (ErrorCode)reader.ReadInt16();
-
+        var errorCode = (ErrorCode)reader.ReadInt16();
+        
         // Read consumers array (Vec<ConsumerOffset>)
         var count = reader.ReadVarInt();
-        response.Consumers = new List<ConsumerOffsetInfo>(count);
-
-        for (int i = 0; i < count; i++)
+        var consumers = new List<ConsumerOffsetInfo>(count);
+        for (var i = 0; i < count; i++)
         {
-            response.Consumers.Add(ConsumerOffsetInfo.ReadFrom(reader));
+            var consumer = ConsumerOffsetInfo.ReadFrom(reader);
+            consumers.Add(consumer);
         }
 
-        return response;
+        return new FetchConsumerOffsetsResponse
+        {
+            ErrorCode = errorCode,
+            Consumers = consumers
+        };
     }
 }
 

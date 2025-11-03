@@ -1,10 +1,5 @@
-using System;
-using System.IO;
 using System.Net.Sockets;
-using System.Threading.Tasks;
-using Fluvio.Client.Abstractions;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Polly;
 using Polly.Retry;
 

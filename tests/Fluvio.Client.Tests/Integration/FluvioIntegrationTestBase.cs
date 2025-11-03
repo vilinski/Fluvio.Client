@@ -1,4 +1,3 @@
-using Fluvio.Client;
 using Fluvio.Client.Abstractions;
 
 namespace Fluvio.Client.Tests.Integration;
@@ -39,6 +38,50 @@ public abstract class FluvioIntegrationTestBase : IAsyncLifetime
         var topicName = GenerateTopicName();
         var admin = Client!.Admin();
 
+        // Retry logic for cluster under load
+        var maxRetries = 3;
+        for (var attempt = 0; attempt < maxRetries; attempt++)
+        {
+            try
+            {
+                await admin.CreateTopicAsync(topicName, new TopicSpec(
+                    Partitions: partitions,
+                    ReplicationFactor: 1
+                ));
+
+                // Success - topic created
+                return topicName;
+            }
+            catch (FluvioException ex) when (ex.Message.Contains("already exists"))
+            {
+                // Topic already exists (from timeout retry), that's okay
+                return topicName;
+            }
+            catch (TaskCanceledException) when (attempt < maxRetries - 1)
+            {
+                // Cluster timeout - topic might have been created, check first
+                await Task.Delay(500);
+
+                try
+                {
+                    var topics = await admin.ListTopicsAsync();
+                    if (topics.Any(t => t.Name == topicName))
+                    {
+                        // Topic exists - timeout happened after creation
+                        return topicName;
+                    }
+                }
+                catch
+                {
+                    // Ignore list error, will retry create
+                }
+
+                // Wait before retry with exponential backoff
+                await Task.Delay(1000 * (attempt + 1));
+            }
+        }
+
+        // Last attempt - catch AlreadyExists error
         try
         {
             await admin.CreateTopicAsync(topicName, new TopicSpec(
@@ -46,7 +89,7 @@ public abstract class FluvioIntegrationTestBase : IAsyncLifetime
                 ReplicationFactor: 1
             ));
         }
-        catch (FluvioException ex) when (ex.Message.Contains("AlreadyExists"))
+        catch (FluvioException ex) when (ex.Message.Contains("already exists"))
         {
             // Topic already exists, that's okay
         }

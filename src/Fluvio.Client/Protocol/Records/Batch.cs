@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using Fluvio.Client.Abstractions;
 
 namespace Fluvio.Client.Protocol.Records;
@@ -83,7 +82,7 @@ public static class BatchEncoder
         batch.Header.Crc = crc;
 
         // 4. Calculate batch_len
-        int batchLen = 4 + 1 + crcBuffer.Length + 4; // partition_leader_epoch + magic + crc_buffer + crc
+        var batchLen = 4 + 1 + crcBuffer.Length + 4; // partition_leader_epoch + magic + crc_buffer + crc
 
         // 5. Write batch to wire format
         writer.WriteInt64(batch.BaseOffset);
@@ -102,7 +101,7 @@ public static class BatchEncoder
         writer.WriteInt32(records.Count);
 
         // Encode each record
-        for (int i = 0; i < records.Count; i++)
+        for (var i = 0; i < records.Count; i++)
         {
             EncodeRecord(writer, records[i], i, baseTimestamp);
         }

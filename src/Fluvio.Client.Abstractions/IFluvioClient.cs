@@ -34,13 +34,17 @@ public interface IFluvioClient : IAsyncDisposable
 }
 
 /// <summary>
-/// Client configuration options
+/// Client configuration options.
+/// All parameters are optional. If not provided, the client will use:
+/// 1. Active profile from ~/.fluvio/config
+/// 2. Sensible defaults (localhost:9010 for SPU, localhost:9003 for SC, TLS off)
 /// </summary>
 public record FluvioClientOptions(
-    string Endpoint = "localhost:9010",  // SPU endpoint for Producer/Consumer
-    string? ScEndpoint = null,           // SC endpoint for Admin (defaults to localhost:9003)
-    bool UseTls = false,
-    string? ClientId = null,
+    string? Endpoint = null,             // SPU endpoint (default: from config or localhost:9010)
+    string? ScEndpoint = null,           // SC endpoint (default: from config or localhost:9003)
+    bool? UseTls = null,                 // TLS enabled (default: from config or false)
+    string? ClientId = null,             // Optional client ID
+    string? Profile = null,              // Fluvio profile name (default: current_profile from config)
     TimeSpan ConnectionTimeout = default,
     TimeSpan RequestTimeout = default,
     ILoggerFactory? LoggerFactory = null,
@@ -62,10 +66,28 @@ public record FluvioClientOptions(
     public TimeSpan RequestTimeout { get; init; } = RequestTimeout == default ? TimeSpan.FromSeconds(60) : RequestTimeout;
 
     /// <summary>
-    /// Gets the SC (Stream Controller) endpoint for Admin operations.
-    /// Defaults to localhost:9003 if not specified.
+    /// Gets the SPU endpoint for Producer/Consumer operations.
+    /// Will be resolved from config if not specified.
     /// </summary>
-    public string ScEndpoint { get; init; } = ScEndpoint ?? "localhost:9003";
+    public string? Endpoint { get; init; } = Endpoint;
+
+    /// <summary>
+    /// Gets the SC (Stream Controller) endpoint for Admin operations.
+    /// Will be resolved from config if not specified.
+    /// </summary>
+    public string? ScEndpoint { get; init; } = ScEndpoint;
+
+    /// <summary>
+    /// Gets whether TLS is enabled.
+    /// Will be resolved from config if not specified.
+    /// </summary>
+    public bool? UseTls { get; init; } = UseTls;
+
+    /// <summary>
+    /// Gets the Fluvio profile name to use.
+    /// If null, uses current_profile from ~/.fluvio/config.
+    /// </summary>
+    public string? Profile { get; init; } = Profile;
 
     /// <summary>
     /// Gets the logger factory for creating loggers (optional).
@@ -117,10 +139,17 @@ public record FluvioClientOptions(
 /// </summary>
 public record ProducerOptions(
     int BatchSize = 1000,
+    int MaxRequestSize = 1024 * 1024,  // 1 MB default (matches Rust client)
     TimeSpan LingerTime = default,
     TimeSpan Timeout = default,
     DeliveryGuarantee DeliveryGuarantee = DeliveryGuarantee.AtLeastOnce)
 {
+    /// <summary>
+    /// Gets the maximum size in bytes for a single produce request.
+    /// Default is 1 MB to match Rust client.
+    /// </summary>
+    public int MaxRequestSize { get; init; } = MaxRequestSize <= 0 ? 1024 * 1024 : MaxRequestSize;
+
     /// <summary>
     /// Gets the linger time for batching records.
     /// </summary>
@@ -128,8 +157,9 @@ public record ProducerOptions(
 
     /// <summary>
     /// Gets the timeout for produce requests.
+    /// Reduced from 30s to 5s for faster failure detection.
     /// </summary>
-    public TimeSpan Timeout { get; init; } = Timeout == default ? TimeSpan.FromSeconds(30) : Timeout;
+    public TimeSpan Timeout { get; init; } = Timeout == default ? TimeSpan.FromSeconds(5) : Timeout;
 }
 
 /// <summary>

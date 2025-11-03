@@ -12,8 +12,11 @@
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>13.0</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningLevel>9</WarningLevel>
 
     <!-- NuGet Package Properties -->
     <PackageId>Fluvio.Client</PackageId>

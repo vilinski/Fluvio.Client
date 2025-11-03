@@ -1,5 +1,3 @@
-using Xunit;
-
 namespace Fluvio.Client.Tests.Integration;
 
 /// <summary>

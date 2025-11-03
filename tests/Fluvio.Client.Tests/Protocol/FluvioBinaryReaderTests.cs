@@ -1,5 +1,4 @@
 using Fluvio.Client.Protocol;
-using Xunit;
 
 namespace Fluvio.Client.Tests.Protocol;
 
@@ -101,7 +100,7 @@ public class FluvioBinaryReaderTests
         writer.WriteInt32(100000);
         writer.WriteInt64(10000000000);
         writer.WriteString("test");
-        writer.WriteBytes(new byte[] { 1, 2, 3 });
+        writer.WriteBytes([1, 2, 3]);
         writer.WriteBool(true);
 
         var bytes = writer.ToArray();

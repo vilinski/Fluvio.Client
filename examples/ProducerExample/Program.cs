@@ -2,16 +2,9 @@ using System.Text;
 using Fluvio.Client;
 using Fluvio.Client.Abstractions;
 
-// Create and connect to Fluvio cluster
-var options = new FluvioClientOptions(
-    Endpoint: "localhost:9003",
-    UseTls: false,
-    ClientId: "producer-example"
-);
-
 Console.WriteLine("Connecting to Fluvio cluster...");
 
-await using var client = await FluvioClient.ConnectAsync(options);
+await using var client = await FluvioClient.ConnectAsync();
 
 Console.WriteLine("Connected!");
 
@@ -19,7 +12,7 @@ Console.WriteLine("Connected!");
 var admin = client.Admin();
 try
 {
-    await admin.CreateTopicAsync("my-topic", new TopicSpec(Partitions: 1, ReplicationFactor: 1));
+    await admin.CreateTopicAsync("my-topic");
     Console.WriteLine("Topic 'my-topic' created");
 }
 catch (FluvioException ex) when (ex.Message.Contains("TopicAlreadyExists"))
@@ -28,14 +21,12 @@ catch (FluvioException ex) when (ex.Message.Contains("TopicAlreadyExists"))
 }
 
 // Get a producer
-var producer = client.Producer(new ProducerOptions(
-    DeliveryGuarantee: DeliveryGuarantee.AtLeastOnce
-));
+var producer = client.Producer();
 
 // Send some messages
 Console.WriteLine("\nSending messages...");
 
-for (int i = 0; i < 10; i++)
+for (var i = 0; i < 10; i++)
 {
     var message = $"Hello, Fluvio! Message #{i}";
     var messageBytes = Encoding.UTF8.GetBytes(message);
@@ -51,7 +42,7 @@ for (int i = 0; i < 10; i++)
 Console.WriteLine("\nSending batch of messages...");
 
 var batchRecords = new List<ProduceRecord>();
-for (int i = 10; i < 15; i++)
+for (var i = 10; i < 15; i++)
 {
     var message = $"Batch message #{i}";
     var messageBytes = Encoding.UTF8.GetBytes(message);

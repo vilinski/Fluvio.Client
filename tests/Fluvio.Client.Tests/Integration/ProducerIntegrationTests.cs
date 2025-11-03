@@ -1,13 +1,12 @@
 using System.Text;
 using Fluvio.Client.Abstractions;
-using Xunit;
 
 namespace Fluvio.Client.Tests.Integration;
 
 [Collection("Integration")]
 public class ProducerIntegrationTests : FluvioIntegrationTestBase
 {
-    [Fact(Skip = "Flaky: SC connection timeout when tests run concurrently. Passes reliably when run individually. SC infrastructure issue, not implementation bug.")]
+    [Fact]
     public async Task SendAsync_SingleMessage_Success()
     {
         var topicName = await CreateTestTopicAsync();
@@ -26,7 +25,7 @@ public class ProducerIntegrationTests : FluvioIntegrationTestBase
         }
     }
 
-    [Fact(Skip = "Flaky: SC connection timeout when tests run concurrently. Passes reliably when run individually. SC infrastructure issue, not implementation bug.")]
+    [Fact]
     public async Task SendAsync_WithKey_Success()
     {
         var topicName = await CreateTestTopicAsync();
@@ -47,7 +46,7 @@ public class ProducerIntegrationTests : FluvioIntegrationTestBase
         }
     }
 
-    [Fact(Skip = "Flaky: SC connection timeout when tests run concurrently. Passes reliably when run individually. SC infrastructure issue, not implementation bug.")]
+    [Fact]
     public async Task SendAsync_MultipleMessages_IncreasingOffsets()
     {
         var topicName = await CreateTestTopicAsync();
@@ -96,7 +95,7 @@ public class ProducerIntegrationTests : FluvioIntegrationTestBase
         }
     }
 
-    [Fact(Skip = "Flaky: SC connection timeout when tests run concurrently. Passes reliably when run individually. SC infrastructure issue, not implementation bug.")]
+    [Fact]
     public async Task SendAsync_LargeMessage_Success()
     {
         var topicName = await CreateTestTopicAsync();
@@ -118,7 +117,7 @@ public class ProducerIntegrationTests : FluvioIntegrationTestBase
         }
     }
 
-    [Fact(Skip = "Flaky: SC connection timeout when tests run concurrently. Passes reliably when run individually. SC infrastructure issue, not implementation bug.")]
+    [Fact]
     public async Task SendAsync_EmptyMessage_Success()
     {
         var topicName = await CreateTestTopicAsync();

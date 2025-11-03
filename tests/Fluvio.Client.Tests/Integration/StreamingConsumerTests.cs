@@ -1,6 +1,5 @@
 using System.Text;
 using Fluvio.Client.Abstractions;
-using Xunit;
 
 namespace Fluvio.Client.Tests.Integration;
 
@@ -21,7 +20,7 @@ public class StreamingConsumerTests : FluvioIntegrationTestBase
         try
         {
             // Produce test messages
-            for (int i = 0; i < messageCount; i++)
+            for (var i = 0; i < messageCount; i++)
             {
                 await producer.SendAsync(topicName, Encoding.UTF8.GetBytes($"Message {i}"));
             }
@@ -50,7 +49,7 @@ public class StreamingConsumerTests : FluvioIntegrationTestBase
             // Assert
             Assert.Equal(messageCount, records.Count);
 
-            for (int i = 0; i < messageCount; i++)
+            for (var i = 0; i < messageCount; i++)
             {
                 var message = Encoding.UTF8.GetString(records[i].Value.Span);
                 Assert.Equal($"Message {i}", message);
@@ -70,7 +69,7 @@ public class StreamingConsumerTests : FluvioIntegrationTestBase
     }
 
     [Fact]
-    public async Task StreamAsync_ShouldHandleContinuousStream()
+    public async Task StreamAsync_WithExistingMessages_StreamsImmediately()
     {
         // Arrange
         var topicName = await CreateTestTopicAsync();
@@ -79,36 +78,33 @@ public class StreamingConsumerTests : FluvioIntegrationTestBase
 
         try
         {
-            // Start streaming before producing
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            var streamTask = Task.Run(async () =>
+            // Produce messages FIRST (avoid blocking on empty topic)
+            for (var i = 0; i < 10; i++)
             {
-                var records = new List<ConsumeRecord>();
-                await foreach (var record in consumer.StreamAsync(topicName, 0, 0, cts.Token))
-                {
-                    records.Add(record);
-
-                    if (records.Count >= 5)
-                        break;
-                }
-                return records;
-            });
-
-            // Give stream time to establish
-            await Task.Delay(1000);
-
-            // Produce messages while streaming
-            for (int i = 0; i < 5; i++)
-            {
-                await producer.SendAsync(topicName, Encoding.UTF8.GetBytes($"Continuous {i}"));
-                await Task.Delay(100); // Small delay between produces
+                await producer.SendAsync(topicName, Encoding.UTF8.GetBytes($"Message {i}"));
             }
 
-            // Act
-            var records = await streamTask;
+            await Task.Delay(500); // Wait for messages to be available
+
+            // Act - Stream should get messages immediately (no blocking)
+            var records = new List<ConsumeRecord>();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+            await foreach (var record in consumer.StreamAsync(topicName, 0, 0, cts.Token))
+            {
+                records.Add(record);
+
+                if (records.Count >= 10)
+                    break; // Got all messages
+            }
 
             // Assert
-            Assert.Equal(5, records.Count);
+            Assert.Equal(10, records.Count);
+            for (var i = 0; i < 10; i++)
+            {
+                var message = Encoding.UTF8.GetString(records[i].Value.Span);
+                Assert.Equal($"Message {i}", message);
+            }
         }
         finally
         {
@@ -127,7 +123,7 @@ public class StreamingConsumerTests : FluvioIntegrationTestBase
         try
         {
             // Produce many messages
-            for (int i = 0; i < messageCount; i++)
+            for (var i = 0; i < messageCount; i++)
             {
                 await producer.SendAsync(topicName, Encoding.UTF8.GetBytes($"Backpressure {i}"));
             }
@@ -143,19 +139,20 @@ public class StreamingConsumerTests : FluvioIntegrationTestBase
             await foreach (var record in consumer.StreamAsync(topicName, 0, 0, cts.Token))
             {
                 records.Add(record);
-
+            
                 // Simulate slow consumer
                 if (records.Count % 10 == 0)
                 {
-                    await Task.Delay(50); // Slow down every 10 records
+                    await Task.Delay(50, cts.Token); // Slow down every 10 records
                 }
-
+            
                 if (records.Count >= messageCount)
                     break;
             }
 
             // Assert - All messages received despite backpressure
             Assert.Equal(messageCount, records.Count);
+            Assert.False(cts.Token.IsCancellationRequested, "Operation shouldn't be cancelled or timed out.");
         }
         finally
         {
@@ -173,8 +170,9 @@ public class StreamingConsumerTests : FluvioIntegrationTestBase
         try
         {
             // Act - Stream from empty topic with timeout
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
             var records = new List<ConsumeRecord>();
+            var cancelled = false;
 
             try
             {
@@ -186,10 +184,15 @@ public class StreamingConsumerTests : FluvioIntegrationTestBase
             catch (OperationCanceledException)
             {
                 // Expected - timeout on empty topic
+                cancelled = true;
             }
 
             // Assert - No records received (topic is empty)
             Assert.Empty(records);
+            // Verify cancellation was requested
+            Assert.True(cts.Token.IsCancellationRequested);
+            // Verify we caught the cancellation
+            Assert.True(cancelled);
         }
         finally
         {

@@ -1,5 +1,4 @@
 using Fluvio.Client.Abstractions;
-using Xunit;
 
 namespace Fluvio.Client.Tests.Integration;
 

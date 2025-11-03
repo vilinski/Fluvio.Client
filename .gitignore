@@ -50,3 +50,6 @@ bld/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# BenchmarkDotNet
+**/BenchmarkDotNet.Artifacts/

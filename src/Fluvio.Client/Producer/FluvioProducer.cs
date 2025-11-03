@@ -85,13 +85,17 @@ internal sealed class FluvioProducer : IFluvioProducer
 
         var requestBody = writer.ToArray();
 
-        // Send request
+        // Send request with timeout
+        // Create a timeout cancellation token based on the producer timeout
+        using var timeoutCts = new CancellationTokenSource(_options.Timeout);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
         var responseBytes = await _connection.SendRequestAsync(
             ApiKey.Produce,
             25, // API version 25 (COMMON_VERSION in Fluvio)
             _clientId,
             requestBody,
-            cancellationToken);
+            linkedCts.Token);
 
         // Parse response
         using var reader = new FluvioBinaryReader(responseBytes);
@@ -127,7 +131,7 @@ internal sealed class FluvioProducer : IFluvioProducer
 
         // Generate offsets for each record
         var offsets = new List<long>(recordList.Count);
-        for (int i = 0; i < recordList.Count; i++)
+        for (var i = 0; i < recordList.Count; i++)
         {
             offsets.Add(baseOffset + i);
         }

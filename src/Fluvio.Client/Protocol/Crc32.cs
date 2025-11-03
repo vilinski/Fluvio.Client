@@ -1,5 +1,3 @@
-using System.IO.Hashing;
-
 namespace Fluvio.Client.Protocol;
 
 /// <summary>

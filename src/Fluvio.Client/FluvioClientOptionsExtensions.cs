@@ -1,4 +1,3 @@
-using System;
 using Fluvio.Client.Abstractions;
 
 namespace Fluvio.Client;

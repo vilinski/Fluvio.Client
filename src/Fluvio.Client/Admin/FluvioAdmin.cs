@@ -28,12 +28,16 @@ internal sealed class FluvioAdmin : IFluvioAdmin
     /// Uses ObjectApiCreateRequest protocol to communicate with SC (Stream Controller).
     /// </summary>
     /// <param name="name">Topic name.</param>
-    /// <param name="spec">Topic specification.</param>
+    /// <param name="spec">Topic specification (optional, defaults to 1 partition and replication factor 1).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <exception cref="ArgumentException">Thrown when topic name is invalid</exception>
-    public async Task CreateTopicAsync(string name, TopicSpec spec, CancellationToken cancellationToken = default)
+    public async Task CreateTopicAsync(string name, TopicSpec? spec = null, CancellationToken cancellationToken = default)
     {
         ValidateTopicName(name);
+
+        // Use default spec if not provided
+        spec ??= new TopicSpec();
+
         // Build ObjectApiCreateRequest according to fluvio-sc-schema
         using var writer = new FluvioBinaryWriter();
 
@@ -71,12 +75,16 @@ internal sealed class FluvioAdmin : IFluvioAdmin
         var requestBody = writer.ToArray();
 
         // Send request to SC with AdminCreate API key and COMMON_VERSION
+        // Use 10-second timeout for admin operations
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
         var responseBytes = await _connection.SendRequestAsync(
             ApiKey.AdminCreate,
             25, // COMMON_VERSION
             _clientId,
             requestBody,
-            cancellationToken);
+            linkedCts.Token);
 
         // Parse Status response
         using var reader = new FluvioBinaryReader(responseBytes);
@@ -127,12 +135,16 @@ internal sealed class FluvioAdmin : IFluvioAdmin
         var requestBody = writer.ToArray();
 
         // Send request to SC with AdminDelete API key and COMMON_VERSION
+        // Use 10-second timeout for admin operations
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
         var responseBytes = await _connection.SendRequestAsync(
             ApiKey.AdminDelete,
             25, // COMMON_VERSION
             _clientId,
             requestBody,
-            cancellationToken);
+            linkedCts.Token);
 
         // Parse Status response
         using var reader = new FluvioBinaryReader(responseBytes);
@@ -188,12 +200,16 @@ internal sealed class FluvioAdmin : IFluvioAdmin
         var requestBody = writer.ToArray();
 
         // Send request to SC with AdminList API key and COMMON_VERSION
+        // Use 10-second timeout for admin operations
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
         var responseBytes = await _connection.SendRequestAsync(
             ApiKey.AdminList,
             25, // COMMON_VERSION
             _clientId,
             requestBody,
-            cancellationToken);
+            linkedCts.Token);
 
         // Parse ObjectApiListResponse
         using var reader = new FluvioBinaryReader(responseBytes);
@@ -215,7 +231,7 @@ internal sealed class FluvioAdmin : IFluvioAdmin
 
         var topics = new List<TopicMetadata>();
 
-        for (int i = 0; i < topicCount; i++)
+        for (var i = 0; i < topicCount; i++)
         {
             // Each Metadata<TopicSpec> contains:
             // - name: String
@@ -268,21 +284,21 @@ internal sealed class FluvioAdmin : IFluvioAdmin
         var status = (TopicStatus)reader.ReadInt8();
 
         var partitions = new List<PartitionMetadata>(partitionCount);
-        for (int i = 0; i < partitionCount; i++)
+        for (var i = 0; i < partitionCount; i++)
         {
             var partitionId = reader.ReadInt32();
             var leader = reader.ReadInt32();
 
             var replicaCount = reader.ReadInt32();
             var replicas = new List<int>(replicaCount);
-            for (int j = 0; j < replicaCount; j++)
+            for (var j = 0; j < replicaCount; j++)
             {
                 replicas.Add(reader.ReadInt32());
             }
 
             var isrCount = reader.ReadInt32();
             var isr = new List<int>(isrCount);
-            for (int j = 0; j < isrCount; j++)
+            for (var j = 0; j < isrCount; j++)
             {
                 isr.Add(reader.ReadInt32());
             }
@@ -304,17 +320,17 @@ internal sealed class FluvioAdmin : IFluvioAdmin
     /// <exception cref="ArgumentException">Thrown when topic name is invalid</exception>
     private static void ValidateTopicName(string name)
     {
-        const int MaxResourceNameLen = 63;
+        const int maxResourceNameLen = 63;
 
         if (string.IsNullOrEmpty(name))
         {
             throw new ArgumentException("Topic name cannot be null or empty", nameof(name));
         }
 
-        if (name.Length > MaxResourceNameLen)
+        if (name.Length > maxResourceNameLen)
         {
             throw new ArgumentException(
-                $"Invalid topic name: '{name}'. Name exceeds max characters allowed {MaxResourceNameLen}",
+                $"Invalid topic name: '{name}'. Name exceeds max characters allowed {maxResourceNameLen}",
                 nameof(name));
         }
 
@@ -325,7 +341,7 @@ internal sealed class FluvioAdmin : IFluvioAdmin
                 nameof(name));
         }
 
-        foreach (char ch in name)
+        foreach (var ch in name)
         {
             if (!char.IsAsciiLetterLower(ch) && !char.IsAsciiDigit(ch) && ch != '-')
             {

@@ -8,7 +8,10 @@ public interface IFluvioAdmin : IAsyncDisposable
     /// <summary>
     /// Create a new topic
     /// </summary>
-    Task CreateTopicAsync(string name, TopicSpec spec, CancellationToken cancellationToken = default);
+    /// <param name="name">Topic name</param>
+    /// <param name="spec">Topic specification (optional, defaults to 1 partition and replication factor 1)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    Task CreateTopicAsync(string name, TopicSpec? spec = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Delete a topic

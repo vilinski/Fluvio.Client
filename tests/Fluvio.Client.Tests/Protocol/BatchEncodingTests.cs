@@ -1,8 +1,6 @@
-using System.Collections.Generic;
 using Fluvio.Client.Abstractions;
 using Fluvio.Client.Protocol;
 using Fluvio.Client.Protocol.Records;
-using Xunit;
 using Xunit.Abstractions;
 
 namespace Fluvio.Client.Tests.Protocol;
@@ -11,15 +9,8 @@ namespace Fluvio.Client.Tests.Protocol;
 /// Tests for Batch<T> encoding matching Rust tests
 /// Source: fluvio-protocol/src/record/batch.rs#test_encode_and_decode_batch_basic
 /// </summary>
-public class BatchEncodingTests
+public class BatchEncodingTests(ITestOutputHelper output)
 {
-    private readonly ITestOutputHelper _output;
-
-    public BatchEncodingTests(ITestOutputHelper output)
-    {
-        _output = output;
-    }
-
     [Fact]
     public void TestEncodeBasicBatch_MatchesRustTest()
     {
@@ -65,16 +56,16 @@ public class BatchEncodingTests
         var crcBuffer = crcWriter.ToArray();
         var crc = Crc32C.Compute(crcBuffer);
 
-        _output.WriteLine($"Records bytes ({recordsBytes.Length}): {BitConverter.ToString(recordsBytes).Replace("-", " ")}");
-        _output.WriteLine($"CRC buffer ({crcBuffer.Length}): {BitConverter.ToString(crcBuffer).Replace("-", " ")}");
-        _output.WriteLine($"Calculated CRC: {crc} (0x{crc:X8})");
-        _output.WriteLine($"Expected CRC:   1430948200 (0x554A8968)");
+        output.WriteLine($"Records bytes ({recordsBytes.Length}): {BitConverter.ToString(recordsBytes).Replace("-", " ")}");
+        output.WriteLine($"CRC buffer ({crcBuffer.Length}): {BitConverter.ToString(crcBuffer).Replace("-", " ")}");
+        output.WriteLine($"Calculated CRC: {crc} (0x{crc:X8})");
+        output.WriteLine($"Expected CRC:   1430948200 (0x554A8968)");
 
         // Verify CRC matches Rust test
         Assert.Equal(1430948200u, crc);
 
         // Write full batch
-        int batchLen = 4 + 1 + crcBuffer.Length + 4;
+        var batchLen = 4 + 1 + crcBuffer.Length + 4;
         writer.WriteInt64(batch.BaseOffset);
         writer.WriteInt32(batchLen);
         writer.WriteInt32(batch.Header.PartitionLeaderEpoch);
@@ -83,8 +74,8 @@ public class BatchEncodingTests
         writer._stream.Write(crcBuffer);
 
         var batchBytes = writer.ToArray();
-        _output.WriteLine($"\nComplete batch ({batchBytes.Length} bytes):");
-        _output.WriteLine(BitConverter.ToString(batchBytes).Replace("-", " "));
+        output.WriteLine($"\nComplete batch ({batchBytes.Length} bytes):");
+        output.WriteLine(BitConverter.ToString(batchBytes).Replace("-", " "));
     }
 
     [Fact]
@@ -110,8 +101,8 @@ public class BatchEncodingTests
         using var schemaIdWriter = new FluvioBinaryWriter();
         batch.SchemaId.Encode(schemaIdWriter);
         var schemaIdBytes = schemaIdWriter.ToArray();
-        _output.WriteLine($"SchemaId bytes: {BitConverter.ToString(schemaIdBytes).Replace("-", " ")}");
-        _output.WriteLine($"SchemaId value: {batch.SchemaId.Value}");
+        output.WriteLine($"SchemaId bytes: {BitConverter.ToString(schemaIdBytes).Replace("-", " ")}");
+        output.WriteLine($"SchemaId value: {batch.SchemaId.Value}");
 
         // Encode
         var recordsBytes = EncodeRecordsWithTimestamp(records, 1555478494747);
@@ -130,11 +121,11 @@ public class BatchEncodingTests
         var crcBuffer = crcWriter.ToArray();
         var crc = Crc32C.Compute(crcBuffer);
 
-        _output.WriteLine($"With SchemaId=42:");
-        _output.WriteLine($"CRC buffer ({crcBuffer.Length}): {BitConverter.ToString(crcBuffer).Replace("-", " ")}");
-        _output.WriteLine($"Records bytes ({recordsBytes.Length}): {BitConverter.ToString(recordsBytes).Replace("-", " ")}");
-        _output.WriteLine($"Calculated CRC: {crc} (0x{crc:X8})");
-        _output.WriteLine($"Expected CRC:   2943551365 (0xAF86DC05)");
+        output.WriteLine($"With SchemaId=42:");
+        output.WriteLine($"CRC buffer ({crcBuffer.Length}): {BitConverter.ToString(crcBuffer).Replace("-", " ")}");
+        output.WriteLine($"Records bytes ({recordsBytes.Length}): {BitConverter.ToString(recordsBytes).Replace("-", " ")}");
+        output.WriteLine($"Calculated CRC: {crc} (0x{crc:X8})");
+        output.WriteLine($"Expected CRC:   2943551365 (0xAF86DC05)");
 
         Assert.Equal(2943551365u, crc);
     }
@@ -146,7 +137,7 @@ public class BatchEncodingTests
         // Vec<Record> encoding
         writer.WriteInt32(records.Count);
 
-        for (int i = 0; i < records.Count; i++)
+        for (var i = 0; i < records.Count; i++)
         {
             using var recordWriter = new FluvioBinaryWriter();
 

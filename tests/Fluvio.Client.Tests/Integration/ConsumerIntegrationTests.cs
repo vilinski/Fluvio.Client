@@ -1,6 +1,4 @@
 using System.Text;
-using Fluvio.Client.Abstractions;
-using Xunit;
 
 namespace Fluvio.Client.Tests.Integration;
 
@@ -82,7 +80,7 @@ public class ConsumerIntegrationTests : FluvioIntegrationTestBase
         try
         {
             // Produce 5 messages
-            for (int i = 0; i < 5; i++)
+            for (var i = 0; i < 5; i++)
             {
                 await producer.SendAsync(topicName, Encoding.UTF8.GetBytes($"msg{i}"));
             }
