@@ -67,6 +67,13 @@ internal sealed class StreamingConsumer(
             writer.WriteInt64(startOffset);
             writer.WriteInt32(options.MaxBytes);
             writer.WriteInt8((sbyte)(options.IsolationLevel == IsolationLevel.ReadCommitted ? 1 : 0));
+
+            // SmartModules (Vec<SmartModuleInvocation>) - version 18+
+            writer.EncodeSmartModules(options.SmartModules, version: 25);
+
+            // consumer_id (Option<String>) - version 23+ (not implemented yet)
+            writer.WriteBool(false); // None
+
             var requestBody = writer.ToArray();
 
             // Send SINGLE StreamFetch request and get streaming channel
@@ -189,11 +196,11 @@ internal sealed class StreamingConsumer(
                 break;
             }
 
-            // Skip batch header
+            // Read batch header
             reader.ReadInt32(); // partition_leader_epoch
             reader.ReadInt8();  // magic
             reader.ReadUInt32(); // crc
-            reader.ReadInt16(); // attributes
+            var attributes = reader.ReadInt16(); // attributes - contains compression type
             reader.ReadInt32(); // last_offset_delta
             reader.ReadInt64(); // first_timestamp
             reader.ReadInt64(); // max_timestamp
@@ -201,31 +208,42 @@ internal sealed class StreamingConsumer(
             reader.ReadInt16(); // producer_epoch
             reader.ReadInt32(); // first_sequence
 
-            var recordCount = reader.ReadInt32();
+            // Calculate how much data remains for records
+            // batch_len includes: partition_leader_epoch (4) + magic (1) + rest
+            // We've read: partition_leader_epoch (4) + magic (1) + crc (4) + attributes (2) +
+            //             last_offset_delta (4) + first_timestamp (8) + max_timestamp (8) +
+            //             producer_id (8) + producer_epoch (2) + first_sequence (4) = 45 bytes
+            var headerBytesRead = 45;
+            var recordsLength = batchLen - headerBytesRead;
+            var recordsBytes = reader.ReadRawBytes(recordsLength);
+
+            // Parse records
+            using var recordsReader = new FluvioBinaryReader(recordsBytes);
+            var recordCount = recordsReader.ReadInt32();
 
             for (var i = 0; i < recordCount; i++)
             {
-                var recordLen = reader.ReadVarLong();
-                var attributes = reader.ReadInt8();
-                var timestampDelta = reader.ReadVarLong();
-                var offsetDelta = reader.ReadVarLong();
+                var recordLen = recordsReader.ReadVarLong();
+                var recordAttributes = recordsReader.ReadInt8();
+                var timestampDelta = recordsReader.ReadVarLong();
+                var offsetDelta = recordsReader.ReadVarLong();
 
-                var hasKey = reader.ReadInt8() != 0;
+                var hasKey = recordsReader.ReadInt8() != 0;
                 byte[]? key = null;
                 if (hasKey)
                 {
-                    var keyLen = reader.ReadVarLong();
-                    key = reader.ReadRawBytes((int)keyLen);
+                    var keyLen = recordsReader.ReadVarLong();
+                    key = recordsReader.ReadRawBytes((int)keyLen);
                 }
 
-                var valueLen = reader.ReadVarLong();
-                var value = reader.ReadRawBytes((int)valueLen);
+                var valueLen = recordsReader.ReadVarLong();
+                var value = recordsReader.ReadRawBytes((int)valueLen);
 
-                var headerCount = reader.ReadVarLong();
+                var headerCount = recordsReader.ReadVarLong();
                 for (long h = 0; h < headerCount; h++)
                 {
-                    reader.ReadVarLong();
-                    reader.ReadVarLong();
+                    recordsReader.ReadVarLong();
+                    recordsReader.ReadVarLong();
                 }
 
                 var absoluteOffset = baseOffset + offsetDelta;

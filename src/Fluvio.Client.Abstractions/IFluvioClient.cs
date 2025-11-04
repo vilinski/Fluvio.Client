@@ -142,7 +142,8 @@ public record ProducerOptions(
     int MaxRequestSize = 1024 * 1024,  // 1 MB default (matches Rust client)
     TimeSpan LingerTime = default,
     TimeSpan Timeout = default,
-    DeliveryGuarantee DeliveryGuarantee = DeliveryGuarantee.AtLeastOnce)
+    DeliveryGuarantee DeliveryGuarantee = DeliveryGuarantee.AtLeastOnce,
+    IReadOnlyList<SmartModuleInvocation>? SmartModules = null)
 {
     /// <summary>
     /// Gets the maximum size in bytes for a single produce request.
@@ -167,7 +168,8 @@ public record ProducerOptions(
 /// </summary>
 public record ConsumerOptions(
     int MaxBytes = 1024 * 1024,
-    IsolationLevel IsolationLevel = IsolationLevel.ReadCommitted);
+    IsolationLevel IsolationLevel = IsolationLevel.ReadCommitted,
+    IReadOnlyList<SmartModuleInvocation>? SmartModules = null);
 
 /// <summary>
 /// Delivery guarantee mode

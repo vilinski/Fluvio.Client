@@ -50,6 +50,12 @@ internal sealed class FluvioBinaryReader(Stream stream) : IDisposable
         return BinaryPrimitives.ReadInt64BigEndian(_buffer);
     }
 
+    public ulong ReadUInt64()
+    {
+        ReadExactly(_buffer, 0, 8);
+        return BinaryPrimitives.ReadUInt64BigEndian(_buffer);
+    }
+
     public uint ReadUInt32()
     {
         ReadExactly(_buffer, 0, 4);

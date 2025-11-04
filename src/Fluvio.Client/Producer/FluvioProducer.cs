@@ -80,8 +80,8 @@ internal sealed class FluvioProducer : IFluvioProducer
         // records: RecordSet (i32 length + batches)
         WriteRecordSet(writer, recordList);
 
-        // 5. smartmodules: Vec<SmartModuleInvocation> (empty for now)
-        writer.WriteInt32(0);
+        // 5. smartmodules: Vec<SmartModuleInvocation>
+        writer.EncodeSmartModules(_options.SmartModules, version: 25);
 
         var requestBody = writer.ToArray();
 

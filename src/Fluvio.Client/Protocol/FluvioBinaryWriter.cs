@@ -42,6 +42,12 @@ internal sealed class FluvioBinaryWriter : IDisposable
         _stream.Write(_buffer, 0, 8);
     }
 
+    public void WriteUInt64(ulong value)
+    {
+        BinaryPrimitives.WriteUInt64BigEndian(_buffer, value);
+        _stream.Write(_buffer, 0, 8);
+    }
+
     public void WriteUInt32(uint value)
     {
         BinaryPrimitives.WriteUInt32BigEndian(_buffer, value);
