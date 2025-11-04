@@ -24,6 +24,10 @@ internal sealed class StreamingConsumer(
     private Channel<ConsumeRecord>? _recordChannel;
     private Task? _streamReaderTask;
     private CancellationTokenSource? _streamCts;
+    private uint _sessionId;
+    private long _lastCommittedOffset = -1;
+    private DateTime _lastCommitTime = DateTime.MinValue;
+    private readonly string? _consumerId = OffsetResolver.GetConsumerId(options.ConsumerGroup);
 
     /// <summary>
     /// Streams records continuously from a persistent StreamFetch connection.
@@ -98,6 +102,9 @@ internal sealed class StreamingConsumer(
                         await _recordChannel!.Writer.WriteAsync(record, cancellationToken);
                         currentOffset = record.Offset + 1;
                     }
+
+                    // Auto-commit if enabled and interval elapsed
+                    await TryAutoCommitAsync(currentOffset - 1, cancellationToken);
                 }
                 catch (Exception ex)
                 {
@@ -137,8 +144,8 @@ internal sealed class StreamingConsumer(
             throw new FluvioException($"Topic mismatch: expected '{topic}', got '{responseTopic}'");
         }
 
-        // 2. Read stream_id (u32)
-        var streamId = reader.ReadUInt32();
+        // 2. Read stream_id (u32) - store for auto-commit
+        _sessionId = reader.ReadUInt32();
 
         // 3. Read FetchablePartitionResponse
         var partitionIndex = reader.ReadInt32();
@@ -259,8 +266,88 @@ internal sealed class StreamingConsumer(
         return records;
     }
 
+    /// <summary>
+    /// Tries to auto-commit offset if conditions are met.
+    /// </summary>
+    private async Task TryAutoCommitAsync(long currentOffset, CancellationToken cancellationToken)
+    {
+        if (!options.AutoCommit || string.IsNullOrEmpty(_consumerId))
+        {
+            return;
+        }
+
+        // Check if we should commit (interval elapsed or first commit)
+        var now = DateTime.UtcNow;
+        var shouldCommit = _lastCommitTime == DateTime.MinValue ||
+                          (now - _lastCommitTime) >= options.AutoCommitInterval;
+
+        if (!shouldCommit || currentOffset == _lastCommittedOffset)
+        {
+            return;
+        }
+
+        try
+        {
+            await CommitOffsetInternalAsync(currentOffset, cancellationToken);
+            _lastCommittedOffset = currentOffset;
+            _lastCommitTime = now;
+
+            logger?.LogDebug(
+                "Auto-committed offset {Offset} for topic {Topic}, partition {Partition}, consumer {ConsumerId}",
+                currentOffset, topic, partition, _consumerId);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex,
+                "Failed to auto-commit offset {Offset} for topic {Topic}, partition {Partition}",
+                currentOffset, topic, partition);
+        }
+    }
+
+    /// <summary>
+    /// Commits the offset to the server using UpdateConsumerOffset API.
+    /// </summary>
+    private async Task CommitOffsetInternalAsync(long offset, CancellationToken cancellationToken)
+    {
+        using var writer = new FluvioBinaryWriter();
+        writer.WriteInt64(offset);
+        writer.WriteUInt32(_sessionId);
+        var requestBody = writer.ToArray();
+
+        var responseBytes = await connection.SendRequestAsync(
+            ApiKey.UpdateConsumerOffset,
+            0,
+            clientId,
+            requestBody,
+            cancellationToken);
+
+        using var reader = new FluvioBinaryReader(responseBytes);
+        var errorCode = (ErrorCode)reader.ReadInt16();
+
+        if (errorCode != ErrorCode.None)
+        {
+            throw new FluvioException($"Failed to commit offset: {errorCode}");
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
+        // Commit final offset before disposing (if auto-commit enabled)
+        if (options.AutoCommit && !string.IsNullOrEmpty(_consumerId) && _lastCommittedOffset >= 0)
+        {
+            try
+            {
+                await CommitOffsetInternalAsync(_lastCommittedOffset, CancellationToken.None);
+                logger?.LogDebug(
+                    "Final offset commit on dispose: {Offset} for topic {Topic}, partition {Partition}",
+                    _lastCommittedOffset, topic, partition);
+            }
+            catch (Exception ex)
+            {
+                logger?.LogWarning(ex, "Failed to commit final offset on dispose");
+            }
+        }
+
         // Cancel the background stream reader
         if (_streamCts != null)
             await _streamCts.CancelAsync();

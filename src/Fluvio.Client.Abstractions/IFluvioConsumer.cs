@@ -6,14 +6,15 @@ namespace Fluvio.Client.Abstractions;
 public interface IFluvioConsumer : IAsyncDisposable
 {
     /// <summary>
-    /// Stream records from the specified topic starting at the given offset
+    /// Stream records from the specified topic starting at the given offset.
+    /// If offset is null, uses OffsetResetStrategy from ConsumerOptions to determine starting point.
     /// </summary>
     /// <param name="topic">Topic name</param>
     /// <param name="partition">Partition number</param>
-    /// <param name="offset">Starting offset</param>
+    /// <param name="offset">Starting offset (null to use offset reset strategy)</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Async enumerable of records</returns>
-    IAsyncEnumerable<ConsumeRecord> StreamAsync(string topic, int partition = 0, long offset = 0, CancellationToken cancellationToken = default);
+    IAsyncEnumerable<ConsumeRecord> StreamAsync(string topic, int partition = 0, long? offset = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Fetch a batch of records from the specified topic

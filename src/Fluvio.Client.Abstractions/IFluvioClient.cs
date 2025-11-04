@@ -169,7 +169,18 @@ public record ProducerOptions(
 public record ConsumerOptions(
     int MaxBytes = 1024 * 1024,
     IsolationLevel IsolationLevel = IsolationLevel.ReadCommitted,
-    IReadOnlyList<SmartModuleInvocation>? SmartModules = null);
+    IReadOnlyList<SmartModuleInvocation>? SmartModules = null,
+    string? ConsumerGroup = null,
+    bool AutoCommit = true,
+    TimeSpan AutoCommitInterval = default,
+    OffsetResetStrategy OffsetReset = OffsetResetStrategy.Latest)
+{
+    /// <summary>
+    /// Gets the auto-commit interval for offset commits.
+    /// Default is 5 seconds.
+    /// </summary>
+    public TimeSpan AutoCommitInterval { get; init; } = AutoCommitInterval == default ? TimeSpan.FromSeconds(5) : AutoCommitInterval;
+};
 
 /// <summary>
 /// Delivery guarantee mode
@@ -199,6 +210,29 @@ public enum IsolationLevel
     /// Read committed isolation level.
     /// </summary>
     ReadCommitted
+}
+
+/// <summary>
+/// Offset reset strategy - determines where to start consuming when no offset is stored
+/// </summary>
+public enum OffsetResetStrategy
+{
+    /// <summary>
+    /// Start from the earliest available offset (beginning of topic)
+    /// </summary>
+    Earliest,
+    /// <summary>
+    /// Start from the latest offset (end of topic, only new messages)
+    /// </summary>
+    Latest,
+    /// <summary>
+    /// Resume from stored offset, or use Earliest if no offset stored
+    /// </summary>
+    StoredOrEarliest,
+    /// <summary>
+    /// Resume from stored offset, or use Latest if no offset stored
+    /// </summary>
+    StoredOrLatest
 }
 
 /// <summary>

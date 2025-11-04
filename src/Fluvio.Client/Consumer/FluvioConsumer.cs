@@ -36,23 +36,65 @@ internal sealed class FluvioConsumer : IFluvioConsumer
     /// <summary>
     /// Streams records from the specified topic starting at the given offset.
     /// Uses persistent StreamFetch connection for high performance with zero polling delays.
+    /// If offset is not specified (null), uses OffsetResetStrategy from options.
     /// </summary>
     /// <param name="topic">Topic name.</param>
     /// <param name="partition">Partition number.</param>
-    /// <param name="offset">Starting offset.</param>
+    /// <param name="offset">Starting offset (null to use offset reset strategy).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Async enumerable of consumed records.</returns>
     public async IAsyncEnumerable<ConsumeRecord> StreamAsync(
         string topic,
         int partition = 0,
-        long offset = 0,
+        long? offset = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        // Resolve starting offset based on strategy
+        var startOffset = await ResolveStartOffsetAsync(topic, partition, offset, cancellationToken);
+
         var streamingConsumer = new StreamingConsumer(_connection, topic, partition, _options, _clientId, _logger);
-        await foreach (var record in streamingConsumer.StreamAsync(offset, cancellationToken))
+        await foreach (var record in streamingConsumer.StreamAsync(startOffset, cancellationToken))
         {
             yield return record;
         }
+    }
+
+    /// <summary>
+    /// Resolves the starting offset based on consumer options and stored offset.
+    /// </summary>
+    private async Task<long> ResolveStartOffsetAsync(
+        string topic,
+        int partition,
+        long? explicitOffset,
+        CancellationToken cancellationToken)
+    {
+        // If explicit offset provided, use it
+        if (explicitOffset.HasValue)
+        {
+            return explicitOffset.Value;
+        }
+
+        // Get consumer ID if using consumer group
+        var consumerId = OffsetResolver.GetConsumerId(_options.ConsumerGroup);
+
+        // Fetch stored offset if using stored strategy
+        long? storedOffset = null;
+        if (consumerId != null &&
+            (_options.OffsetReset == OffsetResetStrategy.StoredOrEarliest ||
+             _options.OffsetReset == OffsetResetStrategy.StoredOrLatest))
+        {
+            try
+            {
+                storedOffset = await FetchLastOffsetAsync(consumerId, topic, partition, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Failed to fetch stored offset for consumer {ConsumerId}", consumerId);
+            }
+        }
+
+        // Resolve offset using strategy
+        return OffsetResolver.ResolveStartOffset(storedOffset, _options.OffsetReset, explicitOffset);
     }
 
     /// <summary>
