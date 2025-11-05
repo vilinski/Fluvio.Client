@@ -190,7 +190,7 @@ internal sealed class FluvioConsumer : IFluvioConsumer
         // 4. Read RecordSet (batches)
         try
         {
-            var records = ReadRecordSet(reader);
+            var records = ReadRecordSet(reader, partition);
             return records;
         }
         catch (Exception ex)
@@ -199,7 +199,7 @@ internal sealed class FluvioConsumer : IFluvioConsumer
         }
     }
 
-    private List<ConsumeRecord> ReadRecordSet(FluvioBinaryReader reader)
+    private List<ConsumeRecord> ReadRecordSet(FluvioBinaryReader reader, int partition)
     {
         var records = new List<ConsumeRecord>();
 
@@ -293,7 +293,8 @@ internal sealed class FluvioConsumer : IFluvioConsumer
                     Offset: absoluteOffset,
                     Value: value,
                     Key: key,
-                    Timestamp: DateTimeOffset.FromUnixTimeMilliseconds(timestampDelta)));
+                    Timestamp: DateTimeOffset.FromUnixTimeMilliseconds(timestampDelta),
+                    Partition: partition));
             }
         }
 

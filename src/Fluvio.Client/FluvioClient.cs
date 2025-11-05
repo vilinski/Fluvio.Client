@@ -215,7 +215,7 @@ public sealed class FluvioClient : IFluvioClient
     {
         EnsureConnected();
         _logger.LogDebug("Creating producer instance");
-        return new FluvioProducer(_spuConnection!, options, _options.ClientId);
+        return new FluvioProducer(_spuConnection!, _scConnection, options, _options.ClientId);
     }
 
     /// <summary>

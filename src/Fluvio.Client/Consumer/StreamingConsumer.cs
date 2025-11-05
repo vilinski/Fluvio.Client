@@ -259,7 +259,8 @@ internal sealed class StreamingConsumer(
                     Offset: absoluteOffset,
                     Value: value,
                     Key: key,
-                    Timestamp: DateTimeOffset.FromUnixTimeMilliseconds(timestampDelta)));
+                    Timestamp: DateTimeOffset.FromUnixTimeMilliseconds(timestampDelta),
+                    Partition: partition));
             }
         }
 

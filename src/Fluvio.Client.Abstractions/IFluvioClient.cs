@@ -143,7 +143,8 @@ public record ProducerOptions(
     TimeSpan LingerTime = default,
     TimeSpan Timeout = default,
     DeliveryGuarantee DeliveryGuarantee = DeliveryGuarantee.AtLeastOnce,
-    IReadOnlyList<SmartModuleInvocation>? SmartModules = null)
+    IReadOnlyList<SmartModuleInvocation>? SmartModules = null,
+    IPartitioner? Partitioner = null)
 {
     /// <summary>
     /// Gets the maximum size in bytes for a single produce request.
@@ -161,6 +162,12 @@ public record ProducerOptions(
     /// Reduced from 30s to 5s for faster failure detection.
     /// </summary>
     public TimeSpan Timeout { get; init; } = Timeout == default ? TimeSpan.FromSeconds(5) : Timeout;
+
+    /// <summary>
+    /// Gets the partitioner for selecting which partition to send records to.
+    /// If null, defaults to SiphashRoundRobinPartitioner (same as Rust client).
+    /// </summary>
+    public IPartitioner? Partitioner { get; init; } = Partitioner;
 }
 
 /// <summary>

@@ -24,6 +24,14 @@ public interface IFluvioProducer : IAsyncDisposable
     /// Flush any pending records
     /// </summary>
     Task FlushAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets the partition count for a topic to enable correct partitioner behavior.
+    /// Must be called before producing to multi-partition topics.
+    /// </summary>
+    /// <param name="topic">Topic name</param>
+    /// <param name="partitionCount">Number of partitions</param>
+    void SetPartitionCount(string topic, int partitionCount);
 }
 
 /// <summary>

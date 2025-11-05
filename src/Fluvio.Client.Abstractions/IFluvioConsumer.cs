@@ -53,4 +53,5 @@ public record ConsumeRecord(
     long Offset,
     ReadOnlyMemory<byte> Value,
     ReadOnlyMemory<byte>? Key = null,
-    DateTimeOffset Timestamp = default);
+    DateTimeOffset Timestamp = default,
+    int Partition = 0);
