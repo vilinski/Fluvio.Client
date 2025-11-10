@@ -16,7 +16,7 @@ Console.WriteLine("=== Fluvio Client Logging Example ===\n");
 
 // Configure client with logging and retry
 var options = new FluvioClientOptions(
-    Endpoint: "localhost:9010",
+    SpuEndpoint: "localhost:9010",
     ScEndpoint: "localhost:9003",
     LoggerFactory: loggerFactory,
     MaxRetries: 3,

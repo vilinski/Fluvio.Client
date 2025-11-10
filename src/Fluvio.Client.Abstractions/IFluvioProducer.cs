@@ -37,4 +37,7 @@ public interface IFluvioProducer : IAsyncDisposable
 /// <summary>
 /// Represents a record to be produced
 /// </summary>
-public record ProduceRecord(ReadOnlyMemory<byte> Value, ReadOnlyMemory<byte>? Key = null);
+public record ProduceRecord(
+    ReadOnlyMemory<byte> Value,
+    ReadOnlyMemory<byte>? Key = null,
+    IReadOnlyDictionary<string, ReadOnlyMemory<byte>>? Headers = null);

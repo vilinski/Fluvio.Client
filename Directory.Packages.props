@@ -1,0 +1,25 @@
+<Project>
+  <PropertyGroup>
+    <!-- Enable Central Package Management -->
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <!-- Pin transitive dependencies for deterministic builds -->
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup Label="Production Dependencies">
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.10" />
+    <PackageVersion Include="Polly" Version="8.6.4" />
+    <PackageVersion Include="System.IO.Hashing" Version="9.0.10" />
+  </ItemGroup>
+
+  <ItemGroup Label="Test Dependencies">
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.0.0" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+
+  <ItemGroup Label="Benchmark Dependencies">
+    <PackageVersion Include="BenchmarkDotNet" Version="0.14.0" />
+  </ItemGroup>
+</Project>

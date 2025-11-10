@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using Fluvio.Client.Abstractions;
 using Fluvio.Client.Network;
 using Fluvio.Client.Protocol;
 using Fluvio.Client.Protocol.Records;
+using Fluvio.Client.Telemetry;
 
 namespace Fluvio.Client.Producer;
 
@@ -43,8 +45,31 @@ internal sealed class FluvioProducer : IFluvioProducer
     /// <returns>Offset of the produced record.</returns>
     public async Task<long> SendAsync(string topic, ReadOnlyMemory<byte> value, ReadOnlyMemory<byte>? key = null, CancellationToken cancellationToken = default)
     {
-        var offsets = await SendBatchAsync(topic, [new ProduceRecord(value, key)], cancellationToken);
-        return offsets[0];
+        using var activity = FluvioActivitySource.Instance.StartActivity(
+            FluvioActivitySource.Operations.Produce,
+            ActivityKind.Producer);
+
+        activity?.SetTag(FluvioActivitySource.Tags.MessagingSystem, "fluvio");
+        activity?.SetTag(FluvioActivitySource.Tags.MessagingOperation, "publish");
+        activity?.SetTag(FluvioActivitySource.Tags.MessagingDestination, topic);
+        activity?.SetTag(FluvioActivitySource.Tags.Topic, topic);
+        activity?.SetTag(FluvioActivitySource.Tags.RecordCount, 1);
+
+        try
+        {
+            var offsets = await SendBatchAsync(topic, [new ProduceRecord(value, key)], cancellationToken);
+            var offset = offsets[0];
+
+            activity?.SetTag(FluvioActivitySource.Tags.Offset, offset);
+            activity?.SetStatus(ActivityStatusCode.Ok);
+
+            return offset;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            throw;
+        }
     }
 
     /// <summary>
@@ -69,7 +94,7 @@ internal sealed class FluvioProducer : IFluvioProducer
             var partition = _partitioner.SelectPartition(topic, record.Key, record.Value, partitionConfig);
             if (!partitionedRecords.ContainsKey(partition))
             {
-                partitionedRecords[partition] = new List<ProduceRecord>();
+                partitionedRecords[partition] = [];
             }
             partitionedRecords[partition].Add(record);
         }
@@ -95,8 +120,19 @@ internal sealed class FluvioProducer : IFluvioProducer
         List<ProduceRecord> records,
         CancellationToken cancellationToken)
     {
-        // Build produce request according to fluvio-spu-schema ProduceRequest structure
-        using var writer = new FluvioBinaryWriter();
+        using var activity = FluvioActivitySource.Instance.StartActivity(
+            $"{FluvioActivitySource.Operations.Produce}.partition",
+            ActivityKind.Producer);
+
+        activity?.SetTag(FluvioActivitySource.Tags.Topic, topic);
+        activity?.SetTag(FluvioActivitySource.Tags.Partition, partition);
+        activity?.SetTag(FluvioActivitySource.Tags.RecordCount, records.Count);
+        activity?.SetTag(FluvioActivitySource.Tags.SmartModuleCount, _options.SmartModules?.Count ?? 0);
+
+        try
+        {
+            // Build produce request according to fluvio-spu-schema ProduceRequest structure
+            using var writer = new FluvioBinaryWriter();
 
         // 1. transactional_id: Option<String>
         // Option encoding: 0x00 for None, 0x01 + value for Some
@@ -170,16 +206,25 @@ internal sealed class FluvioProducer : IFluvioProducer
             throw new FluvioException($"Produce failed with error code: {errorCode}");
         }
 
-        var baseOffset = reader.ReadInt64();
+            var baseOffset = reader.ReadInt64();
 
-        // Generate offsets for each record
-        var offsets = new List<long>(records.Count);
-        for (var i = 0; i < records.Count; i++)
-        {
-            offsets.Add(baseOffset + i);
+            // Generate offsets for each record
+            var offsets = new List<long>(records.Count);
+            for (var i = 0; i < records.Count; i++)
+            {
+                offsets.Add(baseOffset + i);
+            }
+
+            activity?.SetTag(FluvioActivitySource.Tags.Offset, baseOffset);
+            activity?.SetStatus(ActivityStatusCode.Ok);
+
+            return offsets;
         }
-
-        return offsets;
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            throw;
+        }
     }
 
     /// <summary>
@@ -292,7 +337,7 @@ internal sealed class FluvioProducer : IFluvioProducer
         // First encode the batch to get its size
         using var batchWriter = new FluvioBinaryWriter();
         var batch = Batch<List<ProduceRecord>>.Default(records);
-        batch.Encode(batchWriter);
+        batch.Encode(batchWriter, _spuConnection.TimeProvider);
 
         var batchBytes = batchWriter.ToArray();
 

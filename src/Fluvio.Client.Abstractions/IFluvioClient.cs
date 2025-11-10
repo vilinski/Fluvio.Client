@@ -35,16 +35,39 @@ public interface IFluvioClient : IAsyncDisposable
 
 /// <summary>
 /// Client configuration options.
-/// All parameters are optional. If not provided, the client will use:
-/// 1. Active profile from ~/.fluvio/config
-/// 2. Sensible defaults (localhost:9010 for SPU, localhost:9003 for SC, TLS off)
 /// </summary>
+/// <param name="SpuEndpoint">SPU (Streaming Processing Unit) endpoint for data operations. Format: "host:port". If not provided, loaded from ~/.fluvio/config or defaults to "localhost:9010".</param>
+/// <param name="ScEndpoint">SC (Stream Controller) endpoint for admin operations. Format: "host:port". If not provided, loaded from ~/.fluvio/config or defaults to "localhost:9003".</param>
+/// <param name="UseTls">Whether to use TLS for connections. If not provided, loaded from ~/.fluvio/config or defaults to false.</param>
+/// <param name="ClientId">Optional client identifier for logging and debugging.</param>
+/// <param name="Profile">Fluvio profile name to load from ~/.fluvio/config. If not provided, uses the current_profile from config.</param>
+/// <param name="ConnectionTimeout">Maximum time to wait for connection establishment. Defaults to 30 seconds.</param>
+/// <param name="RequestTimeout">Maximum time to wait for request completion. Defaults to 60 seconds.</param>
+/// <param name="LoggerFactory">Logger factory for creating loggers. If not provided, logging is disabled.</param>
+/// <param name="MaxRetries">Maximum number of retry attempts for failed operations. Defaults to 3.</param>
+/// <param name="RetryBaseDelay">Base delay for exponential backoff retry strategy. Defaults to 100ms.</param>
+/// <param name="EnableCircuitBreaker">Whether to enable circuit breaker pattern. When enabled, repeated failures will open the circuit. Defaults to true.</param>
+/// <param name="CircuitBreakerFailureThreshold">Number of consecutive failures before opening the circuit breaker. Defaults to 5.</param>
+/// <param name="CircuitBreakerDuration">How long the circuit breaker stays open before attempting recovery. Defaults to 30 seconds.</param>
+/// <param name="EnableMetrics">Whether to enable metrics collection via System.Diagnostics.Metrics for OpenTelemetry integration. Defaults to true.</param>
+/// <param name="EnableAutoReconnect">Whether to enable automatic reconnection on connection failure. Defaults to true.</param>
+/// <param name="MaxReconnectAttempts">Maximum number of reconnection attempts before marking connection as failed. Defaults to 5.</param>
+/// <param name="ReconnectDelay">Base delay between reconnection attempts (uses exponential backoff). Defaults to 2 seconds.</param>
+/// <param name="TimeProvider">Time provider for testability. If not provided, uses TimeProvider.System.</param>
+/// <remarks>
+/// All parameters are optional. Configuration resolution order:
+/// <list type="number">
+/// <item>Explicitly provided parameters</item>
+/// <item>Active profile from ~/.fluvio/config</item>
+/// <item>Sensible defaults</item>
+/// </list>
+/// </remarks>
 public record FluvioClientOptions(
-    string? Endpoint = null,             // SPU endpoint (default: from config or localhost:9010)
-    string? ScEndpoint = null,           // SC endpoint (default: from config or localhost:9003)
-    bool? UseTls = null,                 // TLS enabled (default: from config or false)
-    string? ClientId = null,             // Optional client ID
-    string? Profile = null,              // Fluvio profile name (default: current_profile from config)
+    string? SpuEndpoint = null,
+    string? ScEndpoint = null,
+    bool? UseTls = null,
+    string? ClientId = null,
+    string? Profile = null,
     TimeSpan ConnectionTimeout = default,
     TimeSpan RequestTimeout = default,
     ILoggerFactory? LoggerFactory = null,
@@ -53,7 +76,11 @@ public record FluvioClientOptions(
     bool EnableCircuitBreaker = true,
     int CircuitBreakerFailureThreshold = 5,
     TimeSpan CircuitBreakerDuration = default,
-    bool EnableMetrics = true)
+    bool EnableMetrics = true,
+    bool EnableAutoReconnect = true,
+    int MaxReconnectAttempts = 5,
+    TimeSpan ReconnectDelay = default,
+    TimeProvider? TimeProvider = null)
 {
     /// <summary>
     /// Gets the connection timeout for the client.
@@ -66,14 +93,14 @@ public record FluvioClientOptions(
     public TimeSpan RequestTimeout { get; init; } = RequestTimeout == default ? TimeSpan.FromSeconds(60) : RequestTimeout;
 
     /// <summary>
-    /// Gets the SPU endpoint for Producer/Consumer operations.
-    /// Will be resolved from config if not specified.
+    /// Gets the SPU (Streaming Processing Unit) endpoint for Producer/Consumer operations.
+    /// Will be resolved from config if not specified. Default: localhost:9010
     /// </summary>
-    public string? Endpoint { get; init; } = Endpoint;
+    public string? SpuEndpoint { get; init; } = SpuEndpoint;
 
     /// <summary>
     /// Gets the SC (Stream Controller) endpoint for Admin operations.
-    /// Will be resolved from config if not specified.
+    /// Will be resolved from config if not specified. Default: localhost:9003
     /// </summary>
     public string? ScEndpoint { get; init; } = ScEndpoint;
 
@@ -132,14 +159,46 @@ public record FluvioClientOptions(
     /// Default is true.
     /// </summary>
     public bool EnableMetrics { get; init; } = EnableMetrics;
+
+    /// <summary>
+    /// Gets whether automatic reconnection is enabled.
+    /// When enabled, connections will automatically attempt to reconnect on failure.
+    /// Default is true.
+    /// </summary>
+    public bool EnableAutoReconnect { get; init; } = EnableAutoReconnect;
+
+    /// <summary>
+    /// Gets the maximum number of reconnection attempts before marking connection as failed.
+    /// Default is 5 attempts.
+    /// </summary>
+    public int MaxReconnectAttempts { get; init; } = MaxReconnectAttempts <= 0 ? 5 : MaxReconnectAttempts;
+
+    /// <summary>
+    /// Gets the base delay between reconnection attempts (uses exponential backoff).
+    /// Default is 2 seconds.
+    /// </summary>
+    public TimeSpan ReconnectDelay { get; init; } = ReconnectDelay == default ? TimeSpan.FromSeconds(2) : ReconnectDelay;
+
+    /// <summary>
+    /// Gets the time provider for testability.
+    /// If null, uses TimeProvider.System.
+    /// </summary>
+    public TimeProvider TimeProvider { get; init; } = TimeProvider ?? TimeProvider.System;
 }
 
 /// <summary>
-/// Producer configuration options
+/// Producer configuration options.
 /// </summary>
+/// <param name="BatchSize">Number of records to batch together before sending. Defaults to 1000.</param>
+/// <param name="MaxRequestSize">Maximum size in bytes for a single produce request. Defaults to 1 MB (matches Rust client).</param>
+/// <param name="LingerTime">Time to wait for batching records before sending. Defaults to 100ms.</param>
+/// <param name="Timeout">Timeout for produce requests. Defaults to 5 seconds for faster failure detection.</param>
+/// <param name="DeliveryGuarantee">Delivery guarantee mode (AtMostOnce or AtLeastOnce). Defaults to AtLeastOnce.</param>
+/// <param name="SmartModules">Optional list of SmartModule invocations for server-side transformations.</param>
+/// <param name="Partitioner">Partitioner for selecting which partition to send records to. Defaults to SiphashRoundRobinPartitioner.</param>
 public record ProducerOptions(
     int BatchSize = 1000,
-    int MaxRequestSize = 1024 * 1024,  // 1 MB default (matches Rust client)
+    int MaxRequestSize = 1024 * 1024,
     TimeSpan LingerTime = default,
     TimeSpan Timeout = default,
     DeliveryGuarantee DeliveryGuarantee = DeliveryGuarantee.AtLeastOnce,
@@ -171,8 +230,15 @@ public record ProducerOptions(
 }
 
 /// <summary>
-/// Consumer configuration options
+/// Consumer configuration options.
 /// </summary>
+/// <param name="MaxBytes">Maximum number of bytes to fetch in a single request. Defaults to 1 MB.</param>
+/// <param name="IsolationLevel">Isolation level for consumer reads (ReadUncommitted or ReadCommitted). Defaults to ReadCommitted.</param>
+/// <param name="SmartModules">Optional list of SmartModule invocations for server-side filtering and transformations.</param>
+/// <param name="ConsumerGroup">Optional consumer group name for offset tracking. If provided, offsets are stored on the server.</param>
+/// <param name="AutoCommit">Whether to automatically commit offsets. Defaults to true.</param>
+/// <param name="AutoCommitInterval">Interval for automatic offset commits. Defaults to 5 seconds.</param>
+/// <param name="OffsetReset">Strategy for determining where to start consuming when no offset is stored. Defaults to Latest.</param>
 public record ConsumerOptions(
     int MaxBytes = 1024 * 1024,
     IsolationLevel IsolationLevel = IsolationLevel.ReadCommitted,

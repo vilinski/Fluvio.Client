@@ -23,7 +23,7 @@ public class ConsumerBenchmarks
     public async Task Setup()
     {
         var options = new FluvioClientOptions(
-            Endpoint: "localhost:9010",
+            SpuEndpoint: "localhost:9010",
             UseTls: false,
             ClientId: "benchmark-consumer"
         );

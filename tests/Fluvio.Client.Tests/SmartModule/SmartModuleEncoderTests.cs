@@ -34,14 +34,14 @@ public class SmartModuleEncoderTests
     {
         // Arrange
         using var writer = new FluvioBinaryWriter();
-        var smartModules = new[]
-        {
-            new SmartModuleInvocation
+        SmartModuleInvocation[] smartModules =
+        [
+            new()
             {
                 Name = "my-filter",
                 Kind = SmartModuleKindType.Filter
             }
-        };
+        ];
 
         // Act
         writer.EncodeSmartModules(smartModules, version: 25);
@@ -85,14 +85,14 @@ public class SmartModuleEncoderTests
     {
         // Arrange
         using var writer = new FluvioBinaryWriter();
-        var smartModules = new[]
-        {
-            new SmartModuleInvocation
+        SmartModuleInvocation[] smartModules =
+        [
+            new()
             {
                 Name = "my-map",
                 Kind = SmartModuleKindType.Map
             }
-        };
+        ];
 
         // Act
         writer.EncodeSmartModules(smartModules, version: 25);
@@ -116,15 +116,15 @@ public class SmartModuleEncoderTests
         // Arrange
         using var writer = new FluvioBinaryWriter();
         var accumulator = Encoding.UTF8.GetBytes("initial");
-        var smartModules = new[]
-        {
-            new SmartModuleInvocation
+        SmartModuleInvocation[] smartModules =
+        [
+            new()
             {
                 Name = "my-aggregate",
                 Kind = SmartModuleKindType.Aggregate,
                 Accumulator = accumulator
             }
-        };
+        ];
 
         // Act
         writer.EncodeSmartModules(smartModules, version: 25);
@@ -153,14 +153,14 @@ public class SmartModuleEncoderTests
     {
         // Arrange
         using var writer = new FluvioBinaryWriter();
-        var smartModules = new[]
-        {
-            new SmartModuleInvocation
+        SmartModuleInvocation[] smartModules =
+        [
+            new()
             {
                 Name = "my-generic",
                 Kind = SmartModuleKindType.Generic
             }
-        };
+        ];
 
         // Act
         writer.EncodeSmartModules(smartModules, version: 25);
@@ -187,9 +187,9 @@ public class SmartModuleEncoderTests
     {
         // Arrange
         using var writer = new FluvioBinaryWriter();
-        var smartModules = new[]
-        {
-            new SmartModuleInvocation
+        SmartModuleInvocation[] smartModules =
+        [
+            new()
             {
                 Name = "my-filter",
                 Kind = SmartModuleKindType.Filter,
@@ -199,7 +199,7 @@ public class SmartModuleEncoderTests
                     ["mode"] = "strict"
                 }
             }
-        };
+        ];
 
         // Act
         writer.EncodeSmartModules(smartModules, version: 25);
@@ -234,9 +234,9 @@ public class SmartModuleEncoderTests
     {
         // Arrange
         using var writer = new FluvioBinaryWriter();
-        var smartModules = new[]
-        {
-            new SmartModuleInvocation
+        SmartModuleInvocation[] smartModules =
+        [
+            new()
             {
                 Name = "my-filter",
                 Kind = SmartModuleKindType.Filter,
@@ -246,7 +246,7 @@ public class SmartModuleEncoderTests
                     Age = TimeSpan.FromMinutes(5)
                 }
             }
-        };
+        ];
 
         // Act
         writer.EncodeSmartModules(smartModules, version: 25);
@@ -285,24 +285,24 @@ public class SmartModuleEncoderTests
     {
         // Arrange
         using var writer = new FluvioBinaryWriter();
-        var smartModules = new[]
-        {
-            new SmartModuleInvocation
+        SmartModuleInvocation[] smartModules =
+        [
+            new()
             {
                 Name = "filter-errors",
                 Kind = SmartModuleKindType.Filter
             },
-            new SmartModuleInvocation
+            new()
             {
                 Name = "map-to-json",
                 Kind = SmartModuleKindType.Map
             },
-            new SmartModuleInvocation
+            new()
             {
                 Name = "filter-threshold",
                 Kind = SmartModuleKindType.FilterMap
             }
-        };
+        ];
 
         // Act
         writer.EncodeSmartModules(smartModules, version: 25);
@@ -320,6 +320,7 @@ public class SmartModuleEncoderTests
         {
             reader.ReadInt8(); // wasm tag
             var name = reader.ReadString();
+            Assert.NotNull(name);
             Assert.NotEmpty(name);
             reader.ReadInt8(); // kind tag
             reader.ReadUInt16(); // param count
@@ -336,15 +337,15 @@ public class SmartModuleEncoderTests
         using var writer = new FluvioBinaryWriter();
         // Use larger data that will actually compress smaller
         var wasmBytes = Encoding.UTF8.GetBytes(new string('A', 1000)); // Highly compressible
-        var smartModules = new[]
-        {
-            new SmartModuleInvocation
+        SmartModuleInvocation[] smartModules =
+        [
+            new()
             {
                 Name = "adhoc-module.wasm",
                 Kind = SmartModuleKindType.Filter,
                 WasmModule = wasmBytes
             }
-        };
+        ];
 
         // Act
         writer.EncodeSmartModules(smartModules, version: 25);
@@ -375,27 +376,27 @@ public class SmartModuleEncoderTests
     public void EncodeSmartModules_AllKindTypes_EncodesCorrectTags()
     {
         // Verify all SmartModuleKindType values encode to correct tags
-        var testCases = new[]
-        {
+        (SmartModuleKindType kind, byte expectedTag)[] testCases =
+        [
             (SmartModuleKindType.Filter, (byte)0),
             (SmartModuleKindType.Map, (byte)1),
             (SmartModuleKindType.ArrayMap, (byte)2),
             (SmartModuleKindType.Aggregate, (byte)3),
             (SmartModuleKindType.FilterMap, (byte)4),
             (SmartModuleKindType.Generic, (byte)7)
-        };
+        ];
 
         foreach (var (kind, expectedTag) in testCases)
         {
             using var writer = new FluvioBinaryWriter();
-            var smartModules = new[]
-            {
-                new SmartModuleInvocation
+            SmartModuleInvocation[] smartModules =
+            [
+                new()
                 {
                     Name = $"test-{kind}",
                     Kind = kind
                 }
-            };
+            ];
 
             writer.EncodeSmartModules(smartModules, version: 25);
 

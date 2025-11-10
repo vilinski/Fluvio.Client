@@ -14,17 +14,17 @@ public static class FluvioClientOptionsExtensions
     /// <exception cref="ArgumentException">Thrown when configuration is invalid</exception>
     public static void Validate(this FluvioClientOptions options)
     {
-        if (string.IsNullOrWhiteSpace(options.Endpoint))
-            throw new ArgumentException("Endpoint cannot be null or empty", nameof(options.Endpoint));
+        if (string.IsNullOrWhiteSpace(options.SpuEndpoint))
+            throw new ArgumentException("SPU endpoint cannot be null or empty", nameof(options.SpuEndpoint));
 
-        if (!TryParseEndpoint(options.Endpoint, out var host, out var port))
-            throw new ArgumentException($"Invalid endpoint format: '{options.Endpoint}'. Expected 'host:port'", nameof(options.Endpoint));
+        if (!TryParseEndpoint(options.SpuEndpoint, out var host, out var port))
+            throw new ArgumentException($"Invalid SPU endpoint format: '{options.SpuEndpoint}'. Expected 'host:port'", nameof(options.SpuEndpoint));
 
         if (string.IsNullOrEmpty(host))
-            throw new ArgumentException($"Invalid host in endpoint: '{options.Endpoint}'", nameof(options.Endpoint));
+            throw new ArgumentException($"Invalid host in SPU endpoint: '{options.SpuEndpoint}'", nameof(options.SpuEndpoint));
 
         if (port <= 0 || port > 65535)
-            throw new ArgumentException($"Invalid port in endpoint: '{options.Endpoint}'. Port must be between 1 and 65535", nameof(options.Endpoint));
+            throw new ArgumentException($"Invalid port in SPU endpoint: '{options.SpuEndpoint}'. Port must be between 1 and 65535", nameof(options.SpuEndpoint));
 
         if (!string.IsNullOrEmpty(options.ScEndpoint) && !TryParseEndpoint(options.ScEndpoint, out _, out _))
             throw new ArgumentException($"Invalid SC endpoint format: '{options.ScEndpoint}'. Expected 'host:port'", nameof(options.ScEndpoint));

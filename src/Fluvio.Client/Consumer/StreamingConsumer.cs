@@ -1,8 +1,10 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using Fluvio.Client.Abstractions;
 using Fluvio.Client.Network;
 using Fluvio.Client.Protocol;
+using Fluvio.Client.Telemetry;
 using Microsoft.Extensions.Logging;
 
 namespace Fluvio.Client.Consumer;
@@ -21,12 +23,13 @@ internal sealed class StreamingConsumer(
     ILogger? logger = null)
     : IAsyncDisposable
 {
+    private readonly TimeProvider _timeProvider = connection.TimeProvider;
     private Channel<ConsumeRecord>? _recordChannel;
     private Task? _streamReaderTask;
     private CancellationTokenSource? _streamCts;
     private uint _sessionId;
     private long _lastCommittedOffset = -1;
-    private DateTime _lastCommitTime = DateTime.MinValue;
+    private DateTimeOffset _lastCommitTime = DateTimeOffset.MinValue;
     private readonly string? _consumerId = OffsetResolver.GetConsumerId(options.ConsumerGroup);
 
     /// <summary>
@@ -60,9 +63,22 @@ internal sealed class StreamingConsumer(
     /// </summary>
     private async Task StreamReaderLoopAsync(long startOffset, CancellationToken cancellationToken)
     {
+        using var activity = FluvioActivitySource.Instance.StartActivity(
+            FluvioActivitySource.Operations.StreamConsume,
+            ActivityKind.Consumer);
+
+        activity?.SetTag(FluvioActivitySource.Tags.MessagingSystem, "fluvio");
+        activity?.SetTag(FluvioActivitySource.Tags.MessagingOperation, "receive");
+        activity?.SetTag(FluvioActivitySource.Tags.MessagingDestination, topic);
+        activity?.SetTag(FluvioActivitySource.Tags.Topic, topic);
+        activity?.SetTag(FluvioActivitySource.Tags.Partition, partition);
+        activity?.SetTag(FluvioActivitySource.Tags.Offset, startOffset);
+        activity?.SetTag(FluvioActivitySource.Tags.ConsumerGroup, options.ConsumerGroup ?? "none");
+
         try
         {
             var currentOffset = startOffset;
+            var totalRecordsReceived = 0;
 
             // Build StreamFetch request
             using var writer = new FluvioBinaryWriter();
@@ -101,6 +117,7 @@ internal sealed class StreamingConsumer(
                     {
                         await _recordChannel!.Writer.WriteAsync(record, cancellationToken);
                         currentOffset = record.Offset + 1;
+                        totalRecordsReceived++;
                     }
 
                     // Auto-commit if enabled and interval elapsed
@@ -112,15 +129,20 @@ internal sealed class StreamingConsumer(
                     logger?.LogWarning(ex, "Failed to parse StreamFetch response for topic {Topic}, partition {Partition}", topic, partition);
                 }
             }
+
+            activity?.SetTag(FluvioActivitySource.Tags.RecordCount, totalRecordsReceived);
+            activity?.SetStatus(ActivityStatusCode.Ok);
         }
         catch (OperationCanceledException)
         {
             // Normal cancellation
+            activity?.SetStatus(ActivityStatusCode.Ok);
         }
         catch (Exception ex)
         {
             // Stream error - could implement reconnection logic here
             logger?.LogError(ex, "StreamFetch error for topic {Topic}, partition {Partition}", topic, partition);
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
         }
         finally
         {
@@ -278,8 +300,8 @@ internal sealed class StreamingConsumer(
         }
 
         // Check if we should commit (interval elapsed or first commit)
-        var now = DateTime.UtcNow;
-        var shouldCommit = _lastCommitTime == DateTime.MinValue ||
+        var now = _timeProvider.GetUtcNow();
+        var shouldCommit = _lastCommitTime == DateTimeOffset.MinValue ||
                           (now - _lastCommitTime) >= options.AutoCommitInterval;
 
         if (!shouldCommit || currentOffset == _lastCommittedOffset)

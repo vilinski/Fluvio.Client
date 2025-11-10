@@ -1,9 +1,11 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Fluvio.Client.Abstractions;
 using Fluvio.Client.Network;
 using Fluvio.Client.Protocol;
 using Fluvio.Client.Protocol.Requests;
 using Fluvio.Client.Protocol.Responses;
+using Fluvio.Client.Telemetry;
 using Microsoft.Extensions.Logging;
 
 namespace Fluvio.Client.Consumer;
@@ -113,8 +115,21 @@ internal sealed class FluvioConsumer : IFluvioConsumer
         int maxBytes = 1024 * 1024,
         CancellationToken cancellationToken = default)
     {
-        // Build StreamFetch request (API 1003, version 18)
-        using var writer = new FluvioBinaryWriter();
+        using var activity = FluvioActivitySource.Instance.StartActivity(
+            FluvioActivitySource.Operations.Consume,
+            ActivityKind.Consumer);
+
+        activity?.SetTag(FluvioActivitySource.Tags.MessagingSystem, "fluvio");
+        activity?.SetTag(FluvioActivitySource.Tags.MessagingOperation, "receive");
+        activity?.SetTag(FluvioActivitySource.Tags.MessagingDestination, topic);
+        activity?.SetTag(FluvioActivitySource.Tags.Topic, topic);
+        activity?.SetTag(FluvioActivitySource.Tags.Partition, partition);
+        activity?.SetTag(FluvioActivitySource.Tags.Offset, offset);
+
+        try
+        {
+            // Build StreamFetch request (API 1003, version 18)
+            using var writer = new FluvioBinaryWriter();
 
         // Mandatory fields (all versions)
         // 1. topic (String with varint length)
@@ -187,15 +202,25 @@ internal sealed class FluvioConsumer : IFluvioConsumer
             }
         }
 
-        // 4. Read RecordSet (batches)
-        try
-        {
-            var records = ReadRecordSet(reader, partition);
-            return records;
+            // 4. Read RecordSet (batches)
+            try
+            {
+                var records = ReadRecordSet(reader, partition);
+
+                activity?.SetTag(FluvioActivitySource.Tags.RecordCount, records.Count);
+                activity?.SetStatus(ActivityStatusCode.Ok);
+
+                return records;
+            }
+            catch (Exception ex)
+            {
+                throw new FluvioException($"Failed to parse record set: {ex.Message}", ex);
+            }
         }
         catch (Exception ex)
         {
-            throw new FluvioException($"Failed to parse record set: {ex.Message}", ex);
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            throw;
         }
     }
 
@@ -278,12 +303,24 @@ internal sealed class FluvioConsumer : IFluvioConsumer
                 var valueLen = reader.ReadVarLong();
                 var value = reader.ReadRawBytes((int)valueLen);
 
-                // Headers (skip for now)
+                // Headers: Vec<RecordHeader> = varlong count + header items
                 var headerCount = reader.ReadVarLong();
-                for (long h = 0; h < headerCount; h++)
+                Dictionary<string, ReadOnlyMemory<byte>>? headers = null;
+                if (headerCount > 0)
                 {
-                    reader.ReadVarLong(); // header key len
-                    reader.ReadVarLong(); // header value len
+                    headers = new Dictionary<string, ReadOnlyMemory<byte>>((int)headerCount);
+                    for (long h = 0; h < headerCount; h++)
+                    {
+                        // RecordHeader: key (String) + value (Bytes)
+                        var headerKeyLen = reader.ReadVarLong();
+                        var headerKeyBytes = reader.ReadRawBytes((int)headerKeyLen);
+                        var headerKey = System.Text.Encoding.UTF8.GetString(headerKeyBytes);
+
+                        var headerValueLen = reader.ReadVarLong();
+                        var headerValue = reader.ReadRawBytes((int)headerValueLen);
+
+                        headers[headerKey] = headerValue;
+                    }
                 }
 
                 // Calculate absolute offset
@@ -294,7 +331,8 @@ internal sealed class FluvioConsumer : IFluvioConsumer
                     Value: value,
                     Key: key,
                     Timestamp: DateTimeOffset.FromUnixTimeMilliseconds(timestampDelta),
-                    Partition: partition));
+                    Partition: partition,
+                    Headers: headers));
             }
         }
 

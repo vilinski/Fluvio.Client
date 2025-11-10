@@ -62,9 +62,9 @@ public static class BatchEncoder
     /// <summary>
     /// Encodes a Batch
     /// </summary>
-    internal static void Encode(this Batch<List<ProduceRecord>> batch, FluvioBinaryWriter writer)
+    internal static void Encode(this Batch<List<ProduceRecord>> batch, FluvioBinaryWriter writer, TimeProvider? timeProvider = null)
     {
-        var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var timestamp = (timeProvider ?? TimeProvider.System).GetUtcNow().ToUnixTimeMilliseconds();
 
         // Update header timestamps
         batch.Header.FirstTimestamp = timestamp;
@@ -136,8 +136,27 @@ public static class BatchEncoder
         recordContentWriter.WriteVarLong(valueSpan.Length);
         recordContentWriter._stream.Write(valueSpan);
 
-        // headers: varlong (count = 0)
-        recordContentWriter.WriteVarLong(0);
+        // headers: Vec<RecordHeader> = varlong count + header items
+        if (record.Headers == null || record.Headers.Count == 0)
+        {
+            recordContentWriter.WriteVarLong(0); // No headers
+        }
+        else
+        {
+            recordContentWriter.WriteVarLong(record.Headers.Count);
+            foreach (var (key, value) in record.Headers)
+            {
+                // RecordHeader: key (String) + value (Bytes)
+                // String encoding: varlong length + UTF-8 bytes
+                var keyBytes = System.Text.Encoding.UTF8.GetBytes(key);
+                recordContentWriter.WriteVarLong(keyBytes.Length);
+                recordContentWriter._stream.Write(keyBytes);
+
+                // Bytes encoding: varlong length + data
+                recordContentWriter.WriteVarLong(value.Length);
+                recordContentWriter._stream.Write(value.Span);
+            }
+        }
 
         var recordContent = recordContentWriter.ToArray();
 

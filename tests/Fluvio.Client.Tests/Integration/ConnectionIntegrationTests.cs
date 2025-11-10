@@ -9,7 +9,8 @@ public class ConnectionIntegrationTests
     public async Task ConnectAsync_LocalCluster_Success()
     {
         var options = new FluvioClientOptions(
-            Endpoint: "localhost:9003",
+            SpuEndpoint: "localhost:9010",
+            ScEndpoint: "localhost:9003",
             UseTls: false
         );
 
@@ -22,7 +23,8 @@ public class ConnectionIntegrationTests
     public async Task ConnectAsync_WithClientId_Success()
     {
         var options = new FluvioClientOptions(
-            Endpoint: "localhost:9003",
+            SpuEndpoint: "localhost:9010",
+            ScEndpoint: "localhost:9003",
             UseTls: false,
             ClientId: "test-connection"
         );
@@ -36,7 +38,8 @@ public class ConnectionIntegrationTests
     public async Task ConnectAsync_InvalidEndpoint_ThrowsException()
     {
         var options = new FluvioClientOptions(
-            Endpoint: "localhost:9999", // Non-existent port
+            SpuEndpoint: "localhost:9999", // Non-existent port
+            ScEndpoint: "localhost:9998",
             UseTls: false,
             ConnectionTimeout: TimeSpan.FromSeconds(2)
         );
@@ -51,7 +54,8 @@ public class ConnectionIntegrationTests
     public async Task DisposeAsync_ClosesConnection()
     {
         var options = new FluvioClientOptions(
-            Endpoint: "localhost:9003",
+            SpuEndpoint: "localhost:9010",
+            ScEndpoint: "localhost:9003",
             UseTls: false
         );
 

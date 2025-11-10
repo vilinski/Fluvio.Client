@@ -47,16 +47,16 @@ public sealed class FluvioClient : IFluvioClient
     private static FluvioClientOptions MergeWithConfig(FluvioClientOptions? provided)
     {
         // If everything is provided, no need to load config
-        if (provided is { Endpoint: not null, ScEndpoint: not null, UseTls: not null })
+        if (provided is { SpuEndpoint: not null, ScEndpoint: not null, UseTls: not null })
             return provided;
 
         // Load config from ~/.fluvio/config
         var cluster = Config.FluvioConfig.GetActiveCluster(provided?.Profile);
 
         // Merge: provided options take precedence over config
-        var endpoint = provided?.Endpoint
-                      ?? cluster?.Endpoint
-                      ?? "localhost:9010";
+        var spuEndpoint = provided?.SpuEndpoint
+                          ?? cluster?.Endpoint
+                          ?? "localhost:9010";
 
         var scEndpoint = provided?.ScEndpoint
                         ?? (cluster?.Endpoint != null ? cluster.Endpoint.Replace(":9010", ":9003") : null)
@@ -68,7 +68,7 @@ public sealed class FluvioClient : IFluvioClient
         {
             return provided with
             {
-                Endpoint = endpoint,
+                SpuEndpoint = spuEndpoint,
                 ScEndpoint = scEndpoint,
                 UseTls = useTls
             };
@@ -76,7 +76,7 @@ public sealed class FluvioClient : IFluvioClient
 
         return new FluvioClientOptions
         {
-            Endpoint = endpoint,
+            SpuEndpoint = spuEndpoint,
             ScEndpoint = scEndpoint,
             UseTls = useTls
         };
@@ -112,13 +112,13 @@ public sealed class FluvioClient : IFluvioClient
             return;
         }
 
-        _logger.LogInformation("Connecting to Fluvio cluster at {Endpoint}", _options.Endpoint);
+        _logger.LogInformation("Connecting to Fluvio cluster at {SpuEndpoint}", _options.SpuEndpoint);
 
         // Parse SPU endpoint (format: "host:port")
-        var parts = _options.Endpoint!.Split(':');
+        var parts = _options.SpuEndpoint!.Split(':');
         if (parts.Length != 2 || !int.TryParse(parts[1], out var port))
         {
-            var error = $"Invalid endpoint format: {_options.Endpoint}. Expected format: 'host:port'";
+            var error = $"Invalid SPU endpoint format: {_options.SpuEndpoint}. Expected format: 'host:port'";
             _logger.LogError(error);
             throw new ArgumentException(error);
         }
@@ -151,10 +151,20 @@ public sealed class FluvioClient : IFluvioClient
             }
 
             _logger.LogDebug("Connecting to SPU at {Host}:{Port}", host, port);
-            _metrics?.RecordConnection(_options.Endpoint!, "SPU");
-            _spuConnection = new FluvioConnection(host, port, _options.UseTls ?? false, _options.ConnectionTimeout, connectionLogger, spuPolicy);
+            _metrics?.RecordConnection(_options.SpuEndpoint!, "SPU");
+            _spuConnection = new FluvioConnection(
+                host,
+                port,
+                _options.UseTls ?? false,
+                _options.ConnectionTimeout,
+                _options.TimeProvider,
+                connectionLogger,
+                spuPolicy,
+                _options.EnableAutoReconnect,
+                _options.MaxReconnectAttempts,
+                _options.ReconnectDelay);
             await _spuConnection.ConnectAsync(cancellationToken);
-            _metrics?.IncrementActiveConnections(_options.Endpoint!);
+            _metrics?.IncrementActiveConnections(_options.SpuEndpoint!);
             _logger.LogInformation("Successfully connected to SPU at {Host}:{Port}", host, port);
 
             // Eagerly connect to SC if endpoint is configured
@@ -188,7 +198,17 @@ public sealed class FluvioClient : IFluvioClient
 
                     _logger.LogDebug("Connecting to SC at {Host}:{Port}", scParts[0], scPort);
                     _metrics?.RecordConnection(_options.ScEndpoint, "SC");
-                    _scConnection = new FluvioConnection(scParts[0], scPort, _options.UseTls ?? false, _options.ConnectionTimeout, connectionLogger, scPolicy);
+                    _scConnection = new FluvioConnection(
+                        scParts[0],
+                        scPort,
+                        _options.UseTls ?? false,
+                        _options.ConnectionTimeout,
+                        _options.TimeProvider,
+                        connectionLogger,
+                        scPolicy,
+                        _options.EnableAutoReconnect,
+                        _options.MaxReconnectAttempts,
+                        _options.ReconnectDelay);
                     await _scConnection.ConnectAsync(cancellationToken);
                     _metrics?.IncrementActiveConnections(_options.ScEndpoint);
                     _logger.LogInformation("Successfully connected to SC at {Host}:{Port}", scParts[0], scPort);
@@ -200,7 +220,7 @@ public sealed class FluvioClient : IFluvioClient
         }
         catch (Exception ex)
         {
-            _metrics?.RecordConnectionFailure(_options.Endpoint, "SPU", ex.GetType().Name);
+            _metrics?.RecordConnectionFailure(_options.SpuEndpoint, "SPU", ex.GetType().Name);
             _logger.LogError(ex, "Failed to connect to Fluvio cluster");
             throw;
         }
@@ -290,7 +310,7 @@ public sealed class FluvioClient : IFluvioClient
             {
                 try
                 {
-                    var startTime = DateTime.UtcNow;
+                    var startTime = _options.TimeProvider.GetUtcNow();
                     var admin = Admin();
 
                     // Quick timeout for health check (5 seconds)
@@ -298,7 +318,7 @@ public sealed class FluvioClient : IFluvioClient
                     using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, healthCheckCts.Token);
 
                     await admin.ListTopicsAsync(linkedCts.Token);
-                    TimeSpan? requestDuration = DateTime.UtcNow - startTime;
+                    TimeSpan? requestDuration = _options.TimeProvider.GetUtcNow() - startTime;
 
                     _logger.LogInformation("Health check passed: SPU={SpuConnected}, SC={ScConnected}, RequestDuration={Duration}ms",
                         spuConnected, scConnected, requestDuration?.TotalMilliseconds);
@@ -332,7 +352,7 @@ public sealed class FluvioClient : IFluvioClient
 
         if (_spuConnection != null)
         {
-            _metrics?.DecrementActiveConnections(_options.Endpoint!);
+            _metrics?.DecrementActiveConnections(_options.SpuEndpoint!);
             await _spuConnection.DisposeAsync();
             _spuConnection = null;
             _logger.LogDebug("SPU connection disposed");

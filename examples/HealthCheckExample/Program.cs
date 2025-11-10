@@ -13,7 +13,7 @@ var loggerFactory = LoggerFactory.Create(builder =>
 Console.WriteLine("=== Fluvio Health Check Example ===\n");
 
 var options = new FluvioClientOptions(
-    Endpoint: "localhost:9010",
+    SpuEndpoint: "localhost:9010",
     ScEndpoint: "localhost:9003",
     LoggerFactory: loggerFactory
 );

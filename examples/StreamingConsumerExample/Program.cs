@@ -20,7 +20,7 @@ class Program
         Console.WriteLine("=== Fluvio High-Performance Streaming Consumer Example ===\n");
 
         var options = new FluvioClientOptions(
-            Endpoint: "localhost:9010",
+            SpuEndpoint: "localhost:9010",
             ScEndpoint: "localhost:9003",
             UseTls: false,
             ClientId: "streaming-example"

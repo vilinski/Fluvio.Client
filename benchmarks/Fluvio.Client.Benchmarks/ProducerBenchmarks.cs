@@ -26,7 +26,8 @@ public class ProducerBenchmarks
     {
         // Connect to local Fluvio cluster
         var options = new FluvioClientOptions(
-            Endpoint: "localhost:9010",
+            SpuEndpoint: "localhost:9010",
+            ScEndpoint: "localhost:9003",
             UseTls: false,
             ClientId: "benchmark-producer"
         );

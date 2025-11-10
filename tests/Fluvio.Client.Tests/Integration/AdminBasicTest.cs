@@ -13,7 +13,7 @@ public class AdminBasicTest(ITestOutputHelper output)
     {
         // Connect to Fluvio with SC endpoint for Admin operations
         var options = new FluvioClientOptions(
-            Endpoint: "localhost:9010",      // SPU for data operations
+            SpuEndpoint: "localhost:9010",   // SPU for data operations
             ScEndpoint: "localhost:9003",    // SC for Admin operations
             UseTls: false,
             ClientId: "admin-basic-test"
@@ -67,7 +67,7 @@ public class AdminBasicTest(ITestOutputHelper output)
     {
         // Connect to Fluvio with SC endpoint for Admin operations
         var options = new FluvioClientOptions(
-            Endpoint: "localhost:9010",      // SPU for data operations
+            SpuEndpoint: "localhost:9010",   // SPU for data operations
             ScEndpoint: "localhost:9003",    // SC for Admin operations
             UseTls: false,
             ClientId: "admin-list-test"
