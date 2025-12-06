@@ -1,0 +1,48 @@
+name: Integration Tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+  # schedule:
+  #   - cron: '0 2 * * *' # Run daily at 2 AM UTC
+
+jobs:
+  integration-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+        cache: true
+        cache-dependency-path: '**/packages.lock.json'
+
+    - name: Install Fluvio CLI
+      run: |
+        curl -fsS https://hub.infinyon.cloud/install/install.sh | bash
+        echo "$HOME/.fluvio/bin" >> $GITHUB_PATH
+
+    - name: Start Fluvio Cluster
+      run: |
+        fluvio cluster start
+        fluvio version
+
+    - name: Restore dependencies
+      run: dotnet restore Fluvio.Client.sln
+
+    - name: Build
+      run: dotnet build --configuration Release --no-restore Fluvio.Client.sln
+
+    - name: Run Integration Tests
+      run: dotnet test --configuration Release --no-build --filter "FullyQualifiedName~Integration" Fluvio.Client.sln
