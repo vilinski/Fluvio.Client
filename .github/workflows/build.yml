@@ -1,0 +1,49 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for SourceLink
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+        cache: true
+        cache-dependency-path: '**/packages.lock.json'
+
+    - name: Restore dependencies
+      run: dotnet restore Fluvio.Client.sln
+
+    - name: Build
+      run: dotnet build --configuration Release --no-restore Fluvio.Client.sln /p:TreatWarningsAsErrors=true
+
+    - name: Test (Unit Tests Only)
+      run: dotnet test --configuration Release --no-build --verbosity normal --filter "FullyQualifiedName!~Integration" Fluvio.Client.sln
+
+    - name: Pack (verify packaging)
+      run: |
+        dotnet pack src/Fluvio.Client/Fluvio.Client.csproj --configuration Release --no-build --output ./artifacts
+        dotnet pack src/Fluvio.Client.Abstractions/Fluvio.Client.Abstractions.csproj --configuration Release --no-build --output ./artifacts
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      if: success()
+      with:
+        name: packages
+        path: ./artifacts/*.nupkg
