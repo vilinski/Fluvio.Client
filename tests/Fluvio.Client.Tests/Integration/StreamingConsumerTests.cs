@@ -139,13 +139,13 @@ public class StreamingConsumerTests : FluvioIntegrationTestBase
             await foreach (var record in consumer.StreamAsync(topicName, 0, 0, cts.Token))
             {
                 records.Add(record);
-            
+
                 // Simulate slow consumer
                 if (records.Count % 10 == 0)
                 {
                     await Task.Delay(50, cts.Token); // Slow down every 10 records
                 }
-            
+
                 if (records.Count >= messageCount)
                     break;
             }

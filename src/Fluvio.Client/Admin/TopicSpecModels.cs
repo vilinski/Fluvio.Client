@@ -64,11 +64,6 @@ internal abstract class ReplicaSpec
     /// </summary>
     public sealed class Mirror : ReplicaSpec
     {
-        // Simplified for now - full MirrorConfig is complex
-        public Mirror()
-        {
-        }
-
         public override void Encode(FluvioBinaryWriter writer)
         {
             writer.WriteInt8(2); // Tag for Mirror variant
@@ -403,17 +398,17 @@ internal enum TopicResolution : byte
 /// </summary>
 internal static class TopicResolutionExtensions
 {
-    public static Fluvio.Client.Abstractions.TopicStatus ToApiStatus(this TopicResolution resolution)
+    public static Abstractions.TopicStatus ToApiStatus(this TopicResolution resolution)
     {
         return resolution switch
         {
-            TopicResolution.Init => Fluvio.Client.Abstractions.TopicStatus.Offline,
-            TopicResolution.Pending => Fluvio.Client.Abstractions.TopicStatus.Offline,
-            TopicResolution.InsufficientResources => Fluvio.Client.Abstractions.TopicStatus.Offline,
-            TopicResolution.InvalidConfig => Fluvio.Client.Abstractions.TopicStatus.Offline,
-            TopicResolution.Provisioned => Fluvio.Client.Abstractions.TopicStatus.Provisioned,
-            TopicResolution.Deleting => Fluvio.Client.Abstractions.TopicStatus.Offline,
-            _ => Fluvio.Client.Abstractions.TopicStatus.Offline
+            TopicResolution.Init => Abstractions.TopicStatus.Offline,
+            TopicResolution.Pending => Abstractions.TopicStatus.Offline,
+            TopicResolution.InsufficientResources => Abstractions.TopicStatus.Offline,
+            TopicResolution.InvalidConfig => Abstractions.TopicStatus.Offline,
+            TopicResolution.Provisioned => Abstractions.TopicStatus.Provisioned,
+            TopicResolution.Deleting => Abstractions.TopicStatus.Offline,
+            _ => Abstractions.TopicStatus.Offline
         };
     }
 }

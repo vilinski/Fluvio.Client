@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using Fluvio.Client.Abstractions;
 using Fluvio.Client.Network;
@@ -19,6 +20,20 @@ internal sealed class FluvioProducer : IFluvioProducer
     private readonly IPartitioner _partitioner;
     private readonly Dictionary<string, PartitionerConfig> _topicPartitionCache = new();
 
+    private readonly ConcurrentQueue<PendingRecord> _buffer = new();
+    private readonly SemaphoreSlim _flushLock = new(1, 1);
+    private readonly Timer? _lingerTimer;
+    private int _bufferedRecordCount;
+    private bool _disposed;
+
+    /// <summary>
+    /// Represents a record pending delivery
+    /// </summary>
+    private record PendingRecord(
+        string Topic,
+        ProduceRecord Record,
+        TaskCompletionSource<long> CompletionSource);
+
     /// <summary>
     /// Initializes a new instance of the <see cref="FluvioProducer"/> class.
     /// </summary>
@@ -33,10 +48,21 @@ internal sealed class FluvioProducer : IFluvioProducer
         _options = options ?? new ProducerOptions();
         _clientId = clientId;
         _partitioner = _options.Partitioner ?? new SiphashRoundRobinPartitioner();
+
+        // Start linger timer for automatic flushing
+        if (_options.LingerTime > TimeSpan.Zero)
+        {
+            _lingerTimer = new Timer(
+                callback: _ => _ = FlushInternalAsync(CancellationToken.None),
+                state: null,
+                dueTime: _options.LingerTime,
+                period: _options.LingerTime);
+        }
     }
 
     /// <summary>
     /// Sends a record to the specified topic.
+    /// Records are buffered and sent automatically based on BatchSize and LingerTime.
     /// </summary>
     /// <param name="topic">Topic name.</param>
     /// <param name="value">Record value.</param>
@@ -45,6 +71,8 @@ internal sealed class FluvioProducer : IFluvioProducer
     /// <returns>Offset of the produced record.</returns>
     public async Task<long> SendAsync(string topic, ReadOnlyMemory<byte> value, ReadOnlyMemory<byte>? key = null, CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         using var activity = FluvioActivitySource.Instance.StartActivity(
             FluvioActivitySource.Operations.Produce,
             ActivityKind.Producer);
@@ -57,8 +85,24 @@ internal sealed class FluvioProducer : IFluvioProducer
 
         try
         {
-            var offsets = await SendBatchAsync(topic, [new ProduceRecord(value, key)], cancellationToken);
-            var offset = offsets[0];
+            // Create task completion source for this record
+            var tcs = new TaskCompletionSource<long>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var record = new ProduceRecord(value, key);
+            var pendingRecord = new PendingRecord(topic, record, tcs);
+
+            // Add to buffer
+            _buffer.Enqueue(pendingRecord);
+            var newCount = Interlocked.Increment(ref _bufferedRecordCount);
+
+            // Auto-flush if batch size reached
+            if (newCount >= _options.BatchSize)
+            {
+                _ = Task.Run(() => FlushInternalAsync(cancellationToken), cancellationToken);
+            }
+
+            // Wait for flush to complete and return offset
+            await using var registration = cancellationToken.Register(() => tcs.TrySetCanceled(cancellationToken));
+            var offset = await tcs.Task.ConfigureAwait(false);
 
             activity?.SetTag(FluvioActivitySource.Tags.Offset, offset);
             activity?.SetStatus(ActivityStatusCode.Ok);
@@ -134,77 +178,77 @@ internal sealed class FluvioProducer : IFluvioProducer
             // Build produce request according to fluvio-spu-schema ProduceRequest structure
             using var writer = new FluvioBinaryWriter();
 
-        // 1. transactional_id: Option<String>
-        // Option encoding: 0x00 for None, 0x01 + value for Some
-        writer.WriteBool(false); // None - no transactional_id
+            // 1. transactional_id: Option<String>
+            // Option encoding: 0x00 for None, 0x01 + value for Some
+            writer.WriteBool(false); // None - no transactional_id
 
-        // 2. isolation: i16 (1 = ReadUncommitted, -1 = ReadCommitted)
-        writer.WriteInt16(1); // ReadUncommitted
+            // 2. isolation: i16 (1 = ReadUncommitted, -1 = ReadCommitted)
+            writer.WriteInt16(1); // ReadUncommitted
 
-        // 3. timeout: i32 (milliseconds)
-        writer.WriteInt32((int)_options.Timeout.TotalMilliseconds);
+            // 3. timeout: i32 (milliseconds)
+            writer.WriteInt32((int)_options.Timeout.TotalMilliseconds);
 
-        // 4. topics: Vec<TopicProduceData>
-        writer.WriteInt32(1); // One topic
+            // 4. topics: Vec<TopicProduceData>
+            writer.WriteInt32(1); // One topic
 
-        // TopicProduceData
-        writer.WriteString(topic); // topic name
+            // TopicProduceData
+            writer.WriteString(topic); // topic name
 
-        // partitions: Vec<PartitionProduceData>
-        writer.WriteInt32(1); // One partition
+            // partitions: Vec<PartitionProduceData>
+            writer.WriteInt32(1); // One partition
 
-        // PartitionProduceData
-        writer.WriteInt32(partition); // partition_index
+            // PartitionProduceData
+            writer.WriteInt32(partition); // partition_index
 
-        // records: RecordSet (i32 length + batches)
-        WriteRecordSet(writer, records);
+            // records: RecordSet (i32 length + batches)
+            WriteRecordSet(writer, records);
 
-        // 5. smartmodules: Vec<SmartModuleInvocation>
-        writer.EncodeSmartModules(_options.SmartModules, version: 25);
+            // 5. smartmodules: Vec<SmartModuleInvocation>
+            writer.EncodeSmartModules(_options.SmartModules, version: 25);
 
-        var requestBody = writer.ToArray();
+            var requestBody = writer.ToArray();
 
-        // Send request with timeout
-        // Create a timeout cancellation token based on the producer timeout
-        using var timeoutCts = new CancellationTokenSource(_options.Timeout);
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+            // Send request with timeout
+            // Create a timeout cancellation token based on the producer timeout
+            using var timeoutCts = new CancellationTokenSource(_options.Timeout);
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
-        var responseBytes = await _spuConnection.SendRequestAsync(
-            ApiKey.Produce,
-            25, // API version 25 (COMMON_VERSION in Fluvio)
-            _clientId,
-            requestBody,
-            linkedCts.Token);
+            var responseBytes = await _spuConnection.SendRequestAsync(
+                ApiKey.Produce,
+                25, // API version 25 (COMMON_VERSION in Fluvio)
+                _clientId,
+                requestBody,
+                linkedCts.Token);
 
-        // Parse response
-        using var reader = new FluvioBinaryReader(responseBytes);
+            // Parse response
+            using var reader = new FluvioBinaryReader(responseBytes);
 
-        // ProduceResponse structure:
-        // - topics: Vec<TopicProduceResponse>
-        var topicCount = reader.ReadInt32();
-        if (topicCount == 0)
-        {
-            throw new FluvioException("No topics in produce response");
-        }
+            // ProduceResponse structure:
+            // - topics: Vec<TopicProduceResponse>
+            var topicCount = reader.ReadInt32();
+            if (topicCount == 0)
+            {
+                throw new FluvioException("No topics in produce response");
+            }
 
-        // TopicProduceResponse
-        var responseTopic = reader.ReadString();
+            // TopicProduceResponse
+            var responseTopic = reader.ReadString();
 
-        // partitions: Vec<PartitionProduceResponse>
-        var partitionCount = reader.ReadInt32();
-        if (partitionCount == 0)
-        {
-            throw new FluvioException("No partitions in produce response");
-        }
+            // partitions: Vec<PartitionProduceResponse>
+            var partitionCount = reader.ReadInt32();
+            if (partitionCount == 0)
+            {
+                throw new FluvioException("No partitions in produce response");
+            }
 
-        // PartitionProduceResponse
-        var partitionIndex = reader.ReadInt32();
-        var errorCode = (ErrorCode)reader.ReadInt16();
+            // PartitionProduceResponse
+            var partitionIndex = reader.ReadInt32();
+            var errorCode = (ErrorCode)reader.ReadInt16();
 
-        if (errorCode != ErrorCode.None)
-        {
-            throw new FluvioException($"Produce failed with error code: {errorCode}");
-        }
+            if (errorCode != ErrorCode.None)
+            {
+                throw new FluvioException($"Produce failed with error code: {errorCode}");
+            }
 
             var baseOffset = reader.ReadInt64();
 
@@ -347,21 +391,113 @@ internal sealed class FluvioProducer : IFluvioProducer
     }
 
     /// <summary>
-    /// Flushes any pending records. (No-op in current implementation.)
+    /// Flushes all buffered records to the server.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
-    public Task FlushAsync(CancellationToken cancellationToken = default)
+    public async Task FlushAsync(CancellationToken cancellationToken = default)
     {
-        // In a full implementation, this would flush any buffered records
-        return Task.CompletedTask;
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        await FlushInternalAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
-    /// Disposes the producer. (No-op, does not own connection.)
+    /// Internal flush implementation that sends all buffered records.
+    /// Uses semaphore to ensure only one flush happens at a time.
     /// </summary>
-    public ValueTask DisposeAsync()
+    private async Task FlushInternalAsync(CancellationToken cancellationToken)
     {
-        // Producer doesn't own the connection, so nothing to dispose
-        return ValueTask.CompletedTask;
+        // Quick check to avoid unnecessary lock
+        if (_bufferedRecordCount == 0)
+        {
+            return;
+        }
+
+        // Acquire flush lock to ensure only one flush at a time
+        if (!await _flushLock.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+        {
+            // Another flush is in progress, skip this one
+            return;
+        }
+
+        try
+        {
+            // Collect all buffered records
+            var recordsByTopic = new Dictionary<string, List<PendingRecord>>();
+            while (_buffer.TryDequeue(out var pendingRecord))
+            {
+                if (!recordsByTopic.TryGetValue(pendingRecord.Topic, out var list))
+                {
+                    list = [];
+                    recordsByTopic[pendingRecord.Topic] = list;
+                }
+                list.Add(pendingRecord);
+                Interlocked.Decrement(ref _bufferedRecordCount);
+            }
+
+            // Send records for each topic
+            foreach (var (topic, pendingRecords) in recordsByTopic)
+            {
+                try
+                {
+                    // Extract records for sending
+                    var records = pendingRecords.Select(pr => pr.Record).ToList();
+
+                    // Send batch using existing implementation
+                    var offsets = await SendBatchAsync(topic, records, cancellationToken).ConfigureAwait(false);
+
+                    // Complete all pending tasks with their offsets
+                    for (int i = 0; i < pendingRecords.Count; i++)
+                    {
+                        pendingRecords[i].CompletionSource.TrySetResult(offsets[i]);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Fail all pending records for this topic
+                    foreach (var pendingRecord in pendingRecords)
+                    {
+                        pendingRecord.CompletionSource.TrySetException(ex);
+                    }
+                }
+            }
+        }
+        finally
+        {
+            _flushLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Disposes the producer and flushes any buffered records.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+
+        // Stop linger timer
+        if (_lingerTimer != null)
+        {
+            await _lingerTimer.DisposeAsync().ConfigureAwait(false);
+        }
+
+        // Flush any remaining buffered records
+        try
+        {
+            await FlushInternalAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Ignore errors during disposal flush
+        }
+
+        // Dispose flush lock
+        _flushLock.Dispose();
+
+        // Producer doesn't own the connection, so don't dispose it
     }
 }

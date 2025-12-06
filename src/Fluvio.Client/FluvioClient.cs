@@ -14,6 +14,12 @@ namespace Fluvio.Client;
 /// </summary>
 public sealed class FluvioClient : IFluvioClient
 {
+    /// <summary>
+    /// Minimum platform version required for client compatibility.
+    /// Any Fluvio cluster running a version older than this will be rejected.
+    /// </summary>
+    private const string MinimumPlatformVersion = "0.9.0";
+
     private readonly FluvioClientOptions _options;
     private readonly ILogger<FluvioClient> _logger;
     private readonly FluvioMetrics? _metrics;
@@ -118,9 +124,8 @@ public sealed class FluvioClient : IFluvioClient
         var parts = _options.SpuEndpoint!.Split(':');
         if (parts.Length != 2 || !int.TryParse(parts[1], out var port))
         {
-            var error = $"Invalid SPU endpoint format: {_options.SpuEndpoint}. Expected format: 'host:port'";
-            _logger.LogError(error);
-            throw new ArgumentException(error);
+            _logger.LogError("Invalid SPU endpoint format: {SpuEndpoint}. Expected format: 'host:port'", _options.SpuEndpoint);
+            throw new ArgumentException($"Invalid SPU endpoint format: {_options.SpuEndpoint}. Expected format: 'host:port'");
         }
 
         var host = parts[0];
@@ -166,6 +171,9 @@ public sealed class FluvioClient : IFluvioClient
             await _spuConnection.ConnectAsync(cancellationToken);
             _metrics?.IncrementActiveConnections(_options.SpuEndpoint!);
             _logger.LogInformation("Successfully connected to SPU at {Host}:{Port}", host, port);
+
+            // Check platform version compatibility
+            await CheckPlatformVersionAsync(_spuConnection, cancellationToken);
 
             // Eagerly connect to SC if endpoint is configured
             if (!string.IsNullOrEmpty(_options.ScEndpoint))
@@ -276,6 +284,105 @@ public sealed class FluvioClient : IFluvioClient
         if (!_isConnected || _spuConnection == null)
         {
             throw new InvalidOperationException("Client is not connected. Call ConnectAsync first.");
+        }
+    }
+
+    /// <summary>
+    /// Checks the Fluvio platform version compatibility.
+    /// </summary>
+    /// <param name="connection">The connection to check.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    private async Task CheckPlatformVersionAsync(FluvioConnection connection, CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger.LogDebug("Checking platform version compatibility");
+
+            // Send ApiVersions request (empty body)
+            using var writer = new Protocol.FluvioBinaryWriter();
+            var requestBody = writer.ToArray();
+
+            var responseBytes = await connection.SendRequestAsync(
+                Protocol.ApiKey.ApiVersions,
+                0, // API version
+                _options.ClientId,
+                requestBody,
+                cancellationToken);
+
+            // Parse response
+            using var reader = new Protocol.FluvioBinaryReader(responseBytes);
+
+            // ErrorCode (i16)
+            var errorCode = (Protocol.ErrorCode)reader.ReadInt16();
+            if (errorCode != Protocol.ErrorCode.None)
+            {
+                _logger.LogWarning("ApiVersions request returned error code: {ErrorCode}", errorCode);
+                // Don't fail on error, just log - some older clusters may not support this
+                return;
+            }
+
+            // ApiKeys: Vec<ApiVersion>
+            var apiKeyCount = reader.ReadInt32();
+            _logger.LogDebug("Server supports {ApiKeyCount} API keys", apiKeyCount);
+
+            // Skip api keys (we only care about platform_version)
+            for (int i = 0; i < apiKeyCount; i++)
+            {
+                reader.ReadInt16(); // api_key
+                reader.ReadInt16(); // min_version
+                reader.ReadInt16(); // max_version
+            }
+
+            // PlatformVersion (String)
+            var platformVersion = reader.ReadString();
+
+            if (string.IsNullOrEmpty(platformVersion))
+            {
+                _logger.LogWarning("Platform version not provided by cluster, skipping version check");
+                return;
+            }
+
+            _logger.LogInformation("Fluvio cluster platform version: {PlatformVersion}", platformVersion);
+
+            // Validate version
+            if (!IsVersionCompatible(platformVersion, MinimumPlatformVersion))
+            {
+                throw new IncompatiblePlatformVersionException(MinimumPlatformVersion, platformVersion);
+            }
+
+            _logger.LogDebug("Platform version check passed");
+        }
+        catch (IncompatiblePlatformVersionException)
+        {
+            throw; // Re-throw version incompatibility errors
+        }
+        catch (Exception ex)
+        {
+            // Log but don't fail - version check is a best-effort feature
+            _logger.LogWarning(ex, "Failed to check platform version, continuing anyway");
+        }
+    }
+
+    /// <summary>
+    /// Checks if the cluster version is compatible with the minimum required version.
+    /// </summary>
+    /// <param name="clusterVersion">The cluster's platform version.</param>
+    /// <param name="minimumVersion">The minimum required version.</param>
+    /// <returns>True if compatible, false otherwise.</returns>
+    private static bool IsVersionCompatible(string clusterVersion, string minimumVersion)
+    {
+        try
+        {
+            // Parse versions using System.Version (semver-compatible)
+            var cluster = Version.Parse(clusterVersion);
+            var minimum = Version.Parse(minimumVersion);
+
+            return cluster >= minimum;
+        }
+        catch
+        {
+            // If version parsing fails, assume compatible
+            return true;
         }
     }
 

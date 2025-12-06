@@ -1,7 +1,6 @@
 using System.Text;
 using Fluvio.Client.Abstractions;
 using Fluvio.Client.Protocol;
-using Xunit;
 
 namespace Fluvio.Client.Tests.SmartModule;
 

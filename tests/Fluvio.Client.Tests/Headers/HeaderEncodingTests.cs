@@ -1,7 +1,6 @@
 using Fluvio.Client.Abstractions;
 using Fluvio.Client.Protocol;
 using Fluvio.Client.Protocol.Records;
-using Xunit;
 
 namespace Fluvio.Client.Tests.Headers;
 

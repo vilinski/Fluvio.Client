@@ -1,6 +1,5 @@
 using Fluvio.Client.Abstractions;
 using Fluvio.Client.Consumer;
-using Xunit;
 
 namespace Fluvio.Client.Tests.Consumer;
 

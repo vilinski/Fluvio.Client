@@ -48,7 +48,7 @@ internal sealed class SiphashRoundRobinPartitioner : IPartitioner
         }
 
         // Records WITH keys: use siphash
-        if (key.HasValue && key.Value.Length > 0)
+        if (key is { Length: > 0 })
         {
             return SelectPartitionByKey(key.Value, config);
         }

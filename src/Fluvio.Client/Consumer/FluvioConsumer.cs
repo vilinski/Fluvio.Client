@@ -131,76 +131,76 @@ internal sealed class FluvioConsumer : IFluvioConsumer
             // Build StreamFetch request (API 1003, version 18)
             using var writer = new FluvioBinaryWriter();
 
-        // Mandatory fields (all versions)
-        // 1. topic (String with varint length)
-        writer.WriteString(topic);
+            // Mandatory fields (all versions)
+            // 1. topic (String with varint length)
+            writer.WriteString(topic);
 
-        // 2. partition (i32)
-        writer.WriteInt32(partition);
+            // 2. partition (i32)
+            writer.WriteInt32(partition);
 
-        // 3. fetch_offset (i64)
-        writer.WriteInt64(offset);
+            // 3. fetch_offset (i64)
+            writer.WriteInt64(offset);
 
-        // 4. max_bytes (i32)
-        writer.WriteInt32(maxBytes);
+            // 4. max_bytes (i32)
+            writer.WriteInt32(maxBytes);
 
-        // 5. isolation (u8)
-        writer.WriteInt8((sbyte)(_options.IsolationLevel == IsolationLevel.ReadCommitted ? 1 : 0));
+            // 5. isolation (u8)
+            writer.WriteInt8((sbyte)(_options.IsolationLevel == IsolationLevel.ReadCommitted ? 1 : 0));
 
-        // Note: Version 10 for basic fetch without SmartModules
-        // No additional fields needed for version 10
+            // Note: Version 10 for basic fetch without SmartModules
+            // No additional fields needed for version 10
 
-        var requestBody = writer.ToArray();
+            var requestBody = writer.ToArray();
 
-        // Send StreamFetch request (API 1003, version 10 - basic fetch)
-        var responseBytes = await _connection.SendRequestAsync(
-            ApiKey.StreamFetch,
-            10, // API version 10 (basic StreamFetch without SmartModules)
-            _clientId,
-            requestBody,
-            cancellationToken);
+            // Send StreamFetch request (API 1003, version 10 - basic fetch)
+            var responseBytes = await _connection.SendRequestAsync(
+                ApiKey.StreamFetch,
+                10, // API version 10 (basic StreamFetch without SmartModules)
+                _clientId,
+                requestBody,
+                cancellationToken);
 
-        // Parse StreamFetchResponse
-        using var reader = new FluvioBinaryReader(responseBytes);
+            // Parse StreamFetchResponse
+            using var reader = new FluvioBinaryReader(responseBytes);
 
-        // 1. Read topic (String)
-        var responseTopic = reader.ReadString();
-        if (responseTopic != topic)
-        {
-            throw new FluvioException($"Topic mismatch: expected '{topic}', got '{responseTopic}'");
-        }
-
-        // 2. Read stream_id (u32)
-        var streamId = reader.ReadUInt32();
-
-        // 3. Read FetchablePartitionResponse
-        var partitionIndex = reader.ReadInt32();
-        var errorCode = (ErrorCode)reader.ReadInt16();
-
-        if (errorCode != ErrorCode.None)
-        {
-            throw new FluvioException($"Fetch failed: {errorCode}");
-        }
-
-        var highWaterMark = reader.ReadInt64();
-
-        // For version 10, we don't have next_filter_offset
-        // Skip log_start_offset (i64)
-        var logStartOffset = reader.ReadInt64();
-
-        // Skip aborted transactions (Option<Vec<AbortedTransaction>>)
-        // Option encoding: 0 = None, 1 = Some
-        var hasAborted = reader.ReadInt8() != 0;
-        if (hasAborted)
-        {
-            var abortedCount = reader.ReadInt32();
-            // Skip aborted transactions for now
-            for (var i = 0; i < abortedCount; i++)
+            // 1. Read topic (String)
+            var responseTopic = reader.ReadString();
+            if (responseTopic != topic)
             {
-                reader.ReadInt64(); // producer_id
-                reader.ReadInt64(); // first_offset
+                throw new FluvioException($"Topic mismatch: expected '{topic}', got '{responseTopic}'");
             }
-        }
+
+            // 2. Read stream_id (u32)
+            var streamId = reader.ReadUInt32();
+
+            // 3. Read FetchablePartitionResponse
+            var partitionIndex = reader.ReadInt32();
+            var errorCode = (ErrorCode)reader.ReadInt16();
+
+            if (errorCode != ErrorCode.None)
+            {
+                throw new FluvioException($"Fetch failed: {errorCode}");
+            }
+
+            var highWaterMark = reader.ReadInt64();
+
+            // For version 10, we don't have next_filter_offset
+            // Skip log_start_offset (i64)
+            var logStartOffset = reader.ReadInt64();
+
+            // Skip aborted transactions (Option<Vec<AbortedTransaction>>)
+            // Option encoding: 0 = None, 1 = Some
+            var hasAborted = reader.ReadInt8() != 0;
+            if (hasAborted)
+            {
+                var abortedCount = reader.ReadInt32();
+                // Skip aborted transactions for now
+                for (var i = 0; i < abortedCount; i++)
+                {
+                    reader.ReadInt64(); // producer_id
+                    reader.ReadInt64(); // first_offset
+                }
+            }
 
             // 4. Read RecordSet (batches)
             try

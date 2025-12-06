@@ -136,9 +136,8 @@ internal sealed class FluvioConnection(
     {
         if (_stream == null || _tcpClient == null || !_tcpClient.Connected)
         {
-            var error = "Connection not established";
-            _logger.LogError(error);
-            throw new InvalidOperationException(error);
+            _logger.LogError("Connection not established");
+            throw new InvalidOperationException("Connection not established");
         }
 
         var correlationId = Interlocked.Increment(ref _nextCorrelationId);
@@ -233,9 +232,8 @@ internal sealed class FluvioConnection(
     {
         if (_stream == null || _tcpClient == null || !_tcpClient.Connected)
         {
-            var error = "Connection not established";
-            _logger.LogError(error);
-            throw new InvalidOperationException(error);
+            _logger.LogError("Connection not established for streaming request");
+            throw new InvalidOperationException("Connection not established");
         }
 
         var correlationId = Interlocked.Increment(ref _nextCorrelationId);
@@ -333,9 +331,8 @@ internal sealed class FluvioConnection(
                 var responseSize = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(sizeBuffer);
                 if (responseSize <= 0 || responseSize > 100 * 1024 * 1024) // 100MB max
                 {
-                    var error = $"Invalid response size: {responseSize}";
-                    _logger.LogError(error);
-                    throw new InvalidDataException(error);
+                    _logger.LogError("Invalid response size: {ResponseSize}", responseSize);
+                    throw new InvalidDataException($"Invalid response size: {responseSize}");
                 }
 
                 _logger.LogTrace("Reading response: Size={Size}", responseSize);
@@ -488,7 +485,7 @@ internal sealed class FluvioConnection(
     {
         if (_readLoopCts != null)
         {
-            _readLoopCts.Cancel();
+            await _readLoopCts.CancelAsync();
             if (_readLoopTask != null)
             {
                 try
@@ -518,7 +515,7 @@ internal sealed class FluvioConnection(
 
         if (_readLoopCts != null)
         {
-            _readLoopCts.Cancel();
+            await _readLoopCts.CancelAsync();
             if (_readLoopTask != null)
             {
                 try

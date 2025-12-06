@@ -4,7 +4,7 @@ namespace Fluvio.Client.Protocol.Records;
 /// Batch header containing metadata for a record batch
 /// Source: fluvio-protocol/src/record/batch.rs
 /// </summary>
-public class BatchHeader
+public record BatchHeader
 {
     /// <summary>
     /// Partition leader epoch. Default: -1

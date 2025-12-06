@@ -238,7 +238,7 @@ public static class RecordHeaders
         var spanId = ActivitySpanId.CreateFromString(parts[2].AsSpan());
 
         // Parse trace flags (2 hex chars)
-        var traceFlags = parts[3].Length >= 2 && int.TryParse(parts[3].Substring(0, 2), System.Globalization.NumberStyles.HexNumber, null, out var flags)
+        var traceFlags = parts[3].Length >= 2 && int.TryParse(parts[3].AsSpan(0, 2), System.Globalization.NumberStyles.HexNumber, null, out var flags)
             ? (ActivityTraceFlags)flags
             : ActivityTraceFlags.None;
 

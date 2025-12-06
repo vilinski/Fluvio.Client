@@ -25,7 +25,7 @@ internal sealed class FetchConsumerOffsetsResponse
     {
         // Read error code
         var errorCode = (ErrorCode)reader.ReadInt16();
-        
+
         // Read consumers array (Vec<ConsumerOffset>)
         var count = reader.ReadVarInt();
         var consumers = new List<ConsumerOffsetInfo>(count);

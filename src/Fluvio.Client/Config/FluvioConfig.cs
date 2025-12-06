@@ -1,5 +1,3 @@
-using System.Text.Json;
-
 namespace Fluvio.Client.Config;
 
 /// <summary>
@@ -135,7 +133,7 @@ internal static class FluvioConfig
         if (profileData.Cluster == null)
             return null;
 
-        return config.Clusters.TryGetValue(profileData.Cluster, out var cluster) ? cluster : null;
+        return config.Clusters.GetValueOrDefault(profileData.Cluster);
     }
 }
 

@@ -229,7 +229,7 @@ internal sealed class StreamingConsumer(
             reader.ReadInt32(); // partition_leader_epoch
             reader.ReadInt8();  // magic
             reader.ReadUInt32(); // crc
-            var attributes = reader.ReadInt16(); // attributes - contains compression type
+            reader.ReadInt16(); // attributes - contains compression type
             reader.ReadInt32(); // last_offset_delta
             reader.ReadInt64(); // first_timestamp
             reader.ReadInt64(); // max_timestamp

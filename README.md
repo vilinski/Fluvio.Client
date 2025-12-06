@@ -8,10 +8,6 @@ A pure managed .NET client library for [Fluvio](https://www.fluvio.io/), the dis
 - **Producer API** - Send messages to Fluvio topics with at-most-once or at-least-once delivery guarantees
 - **Consumer API** - Stream messages from topics with configurable offsets and isolation levels
 - **Admin API** - Create, delete, and list topics programmatically
-- **Async/Await Support** - Fully asynchronous API using modern C# patterns
-- **IAsyncEnumerable** - Stream records efficiently using async streams
-- **TLS Support** - Secure connections to Fluvio clusters
-- **Connection Pooling** - Efficient TCP connection management
 
 ## Installation
 
@@ -29,17 +25,10 @@ using Fluvio.Client;
 using Fluvio.Client.Abstractions;
 
 // Connect to Fluvio cluster
-var options = new FluvioClientOptions(
-    Endpoint: "localhost:9003",
-    UseTls: false
-);
-
-await using var client = await FluvioClient.ConnectAsync(options);
+await using var client = await FluvioClient.ConnectAsync();
 
 // Get a producer
-var producer = client.Producer(new ProducerOptions(
-    DeliveryGuarantee: DeliveryGuarantee.AtLeastOnce
-));
+var producer = client.Producer();
 
 // Send a message
 var message = Encoding.UTF8.GetBytes("Hello, Fluvio!");
@@ -55,9 +44,7 @@ using Fluvio.Client;
 using Fluvio.Client.Abstractions;
 
 // Connect to Fluvio cluster
-await using var client = await FluvioClient.ConnectAsync(
-    new FluvioClientOptions(Endpoint: "localhost:9003")
-);
+await using var client = await FluvioClient.ConnectAsync();
 
 // Get a consumer
 var consumer = client.Consumer();
@@ -76,9 +63,7 @@ await foreach (var record in consumer.StreamAsync("my-topic", offset: 0))
 using Fluvio.Client;
 using Fluvio.Client.Abstractions;
 
-await using var client = await FluvioClient.ConnectAsync(
-    new FluvioClientOptions(Endpoint: "localhost:9003")
-);
+await using var client = await FluvioClient.ConnectAsync();
 
 var admin = client.Admin();
 
@@ -105,11 +90,15 @@ Main entry point for connecting to a Fluvio cluster.
 ```csharp
 var client = new FluvioClient(new FluvioClientOptions
 {
-    Endpoint = "localhost:9003",
+    SpuEndpoint = "localhost:9010",  // SPU for data operations
+    ScEndpoint = "localhost:9003",   // SC for admin operations
     UseTls = false,
     ClientId = "my-client",
     ConnectionTimeout = TimeSpan.FromSeconds(30),
-    RequestTimeout = TimeSpan.FromSeconds(60)
+    RequestTimeout = TimeSpan.FromSeconds(60),
+    EnableAutoReconnect = true,       // Automatic reconnection on failure
+    MaxReconnectAttempts = 5,         // Up to 5 reconnection attempts
+    ReconnectDelay = TimeSpan.FromSeconds(2)  // 2s base delay with exponential backoff
 });
 
 await client.ConnectAsync();
@@ -165,6 +154,61 @@ var records = await consumer.FetchBatchAsync(
 );
 ```
 
+#### SmartModule Support
+
+Apply transformations and filters using SmartModules:
+
+```csharp
+// Using a predefined SmartModule
+var consumer = client.Consumer(new ConsumerOptions
+{
+    SmartModules =
+    [
+        new SmartModuleInvocation
+        {
+            Name = "my-filter",  // Name of pre-deployed SmartModule
+            Kind = SmartModuleKindType.Filter,
+            Parameters = new Dictionary<string, string>
+            {
+                ["threshold"] = "100"
+            }
+        }
+    ]
+});
+
+// Chain multiple SmartModules
+var consumer = client.Consumer(new ConsumerOptions
+{
+    SmartModules =
+    [
+        new SmartModuleInvocation
+        {
+            Name = "filter-errors",
+            Kind = SmartModuleKindType.Filter
+        },
+        new SmartModuleInvocation
+        {
+            Name = "map-to-json",
+            Kind = SmartModuleKindType.Map
+        }
+    ]
+});
+
+// Using an aggregate SmartModule with initial accumulator
+var consumer = client.Consumer(new ConsumerOptions
+{
+    SmartModules =
+    [
+        new SmartModuleInvocation
+        {
+            Name = "running-sum",
+            Kind = SmartModuleKindType.Aggregate,
+            Accumulator = Encoding.UTF8.GetBytes("0")  // Initial value
+        }
+    ]
+});
+```
+
 ### Admin API
 
 ```csharp
@@ -211,6 +255,47 @@ This client is compatible with Fluvio's wire protocol, which is inspired by Apac
 - .NET 8.0 or later
 - Fluvio cluster (local or remote)
 
+## Performance
+
+The Fluvio C# client delivers **production-ready performance**:
+
+- **Producer**: 113-115 μs per message, **738,550 msg/s** in batch mode (100 messages)
+- **Consumer**: ~1 μs per message with streaming, 0.65 ms for batch of 1000
+- **Protocol**: 5 ns record creation, zero-copy design with minimal allocations
+
+See [BENCHMARK_RESULTS.md](BENCHMARK_RESULTS.md) for detailed performance analysis.
+
+## Observability & Testability
+
+The client includes comprehensive observability features for production deployments:
+
+### Distributed Tracing
+
+Built-in support for distributed tracing using .NET's `ActivitySource` (OpenTelemetry-compatible):
+
+```csharp
+// Enable tracing by configuring an ActivityListener or using OpenTelemetry SDK
+using var listener = new ActivityListener
+{
+    ShouldListenTo = source => source.Name == "Fluvio.Client",
+    Sample = (ref ActivityCreationOptions<ActivityContext> options) => ActivitySamplingResult.AllData,
+    ActivityStarted = activity => Console.WriteLine($"Started: {activity.OperationName}"),
+    ActivityStopped = activity => Console.WriteLine($"Stopped: {activity.OperationName} ({activity.Duration})")
+};
+ActivitySource.AddActivityListener(listener);
+
+// Operations are automatically traced
+var offset = await producer.SendAsync("my-topic", messageBytes);
+await foreach (var record in consumer.StreamAsync("my-topic")) { /* ... */ }
+```
+
+Trace data includes:
+- **Operation context**: Topic, partition, offset, record count
+- **Performance metrics**: Request/response sizes, timing
+- **Correlation**: Automatic parent-child span relationships
+- **Error tracking**: Exception details and error codes
+
+
 ## Development
 
 ### Building
@@ -225,18 +310,34 @@ dotnet build
 dotnet test
 ```
 
+### Running Benchmarks
+
+```bash
+# Start Fluvio cluster
+fluvio cluster start
+
+# Run performance benchmarks
+cd benchmarks/Fluvio.Client.Benchmarks
+dotnet run -c Release
+```
+
 ### Running Examples
 
 ```bash
-# Start Fluvio cluster (if not already running)
-fluvio cluster start
-
 # Run producer example
 dotnet run --project examples/ProducerExample
 
 # Run consumer example (in another terminal)
 dotnet run --project examples/ConsumerExample
 ```
+
+## Documentation
+
+- [GETTING_STARTED.md](GETTING_STARTED.md) - Quick start guide and examples
+- [ARCHITECTURE.md](ARCHITECTURE.md) - System design and architecture details
+- [PROTOCOL_REFERENCE.md](PROTOCOL_REFERENCE.md) - Wire protocol implementation details
+- [BENCHMARK_RESULTS.md](BENCHMARK_RESULTS.md) - Performance benchmarks and analysis
+- [TODO.md](TODO.md) - Feature roadmap and Rust parity tracking
 
 ## Limitations
 
@@ -246,7 +347,7 @@ For production use, you may need to:
 
 1. Verify protocol compatibility with your Fluvio version
 2. Add more robust error handling
-3. Implement additional features like compression, SmartModules, etc.
+3. Implement additional features like topic mirroring, etc.
 4. Add comprehensive integration tests with a real Fluvio cluster
 
 ## Contributing

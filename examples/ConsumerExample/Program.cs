@@ -1,6 +1,5 @@
 using System.Text;
 using Fluvio.Client;
-using Fluvio.Client.Abstractions;
 
 // Connect to Fluvio cluster using config from ~/.fluvio/config
 Console.WriteLine("Connecting to Fluvio cluster...");

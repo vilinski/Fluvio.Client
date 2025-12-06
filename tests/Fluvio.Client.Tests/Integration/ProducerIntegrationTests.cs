@@ -1,5 +1,4 @@
 using System.Text;
-using System.Linq;
 using Fluvio.Client.Abstractions;
 
 namespace Fluvio.Client.Tests.Integration;
