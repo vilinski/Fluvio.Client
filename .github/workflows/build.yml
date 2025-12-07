@@ -1,0 +1,68 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for SourceLink
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+        cache: true
+        cache-dependency-path: '**/packages.lock.json'
+
+    - name: Check formatting
+      if: runner.os == 'Linux'
+      run: dotnet format --verify-no-changes --verbosity diagnostic
+
+    - name: Restore dependencies
+      run: dotnet restore Fluvio.Client.sln
+
+    - name: Build
+      run: dotnet build --configuration Release --no-restore Fluvio.Client.sln /p:TreatWarningsAsErrors=true
+
+    - name: Test (Unit Tests Only)
+      run: dotnet test --configuration Release --no-build --verbosity normal --filter "FullyQualifiedName!~Integration" --collect:"XPlat Code Coverage" Fluvio.Client.sln
+
+    - name: Check for vulnerable dependencies
+      if: runner.os == 'Linux'
+      run: dotnet list Fluvio.Client.sln package --vulnerable --include-transitive
+
+    - name: Pack (verify packaging)
+      if: runner.os == 'Linux'
+      run: |
+        dotnet pack src/Fluvio.Client/Fluvio.Client.csproj --configuration Release --no-build --output ./artifacts
+        dotnet pack src/Fluvio.Client.Abstractions/Fluvio.Client.Abstractions.csproj --configuration Release --no-build --output ./artifacts
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      if: success() && runner.os == 'Linux'
+      with:
+        name: packages
+        path: ./artifacts/*.nupkg
+
+    - name: Upload coverage
+      uses: actions/upload-artifact@v4
+      if: success() && runner.os == 'Linux'
+      with:
+        name: coverage
+        path: '**/coverage.cobertura.xml'

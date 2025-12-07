@@ -1,0 +1,39 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Fluvio.Client.Abstractions\Fluvio.Client.Abstractions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Polly" />
+    <PackageReference Include="System.IO.Hashing" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>13.0</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningLevel>9</WarningLevel>
+
+    <!-- AOT/Trimming Support -->
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <IsTrimmable>true</IsTrimmable>
+
+    <!-- NuGet Package Properties -->
+    <PackageId>Fluvio.Client</PackageId>
+    <Version>0.1.0</Version>
+    <Description>Pure managed .NET client for Fluvio streaming platform. Implements the Fluvio wire protocol in C# for producing, consuming, and managing topics.</Description>
+    <PackageTags>fluvio;streaming;kafka;event-streaming;distributed-systems</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <InternalsVisibleTo Include="Fluvio.Client.Tests" />
+  </ItemGroup>
+
+</Project>

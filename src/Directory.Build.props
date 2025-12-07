@@ -1,0 +1,15 @@
+<Project>
+  <PropertyGroup>
+    <Authors>Andreas Vilinski</Authors>
+    <RepositoryUrl>https://github.com/vilinski/fluvio-dotnet-client</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/vilinski/fluvio-dotnet-client</PackageProjectUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
+  </ItemGroup>
+</Project>

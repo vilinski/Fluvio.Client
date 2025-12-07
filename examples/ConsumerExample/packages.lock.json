@@ -1,0 +1,61 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net8.0": {
+      "Microsoft.Extensions.DependencyInjection.Abstractions": {
+        "type": "Transitive",
+        "resolved": "10.0.0",
+        "contentHash": "L3AdmZ1WOK4XXT5YFPEwyt0ep6l8lGIPs7F5OOBZc77Zqeo01Of7XXICy47628sdVl0v/owxYJTe86DTgFwKCA=="
+      },
+      "Polly.Core": {
+        "type": "Transitive",
+        "resolved": "8.6.5",
+        "contentHash": "t+sUVrIwvo7UmsgHGgOG9F0GDZSRIm47u2ylH17Gvcv1q5hNEwgD5GoBlFyc0kh/pebmPyrAgvGsR/65ZBaXlg=="
+      },
+      "System.Diagnostics.DiagnosticSource": {
+        "type": "Transitive",
+        "resolved": "10.0.0",
+        "contentHash": "0KdBK+h7G13PuOSC2R/DalAoFMvdYMznvGRuICtkdcUMXgl/gYXsG6z4yUvTxHSMACorWgHCU1Faq0KUHU6yAQ=="
+      },
+      "fluvio.client": {
+        "type": "Project",
+        "dependencies": {
+          "Fluvio.Client.Abstractions": "[0.1.0, )",
+          "Polly": "[8.6.5, )",
+          "System.IO.Hashing": "[10.0.0, )"
+        }
+      },
+      "fluvio.client.abstractions": {
+        "type": "Project",
+        "dependencies": {
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.0, )"
+        }
+      },
+      "Microsoft.Extensions.Logging.Abstractions": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.0, )",
+        "resolved": "10.0.0",
+        "contentHash": "FU/IfjDfwaMuKr414SSQNTIti/69bHEMb+QKrskRb26oVqpx3lNFXMjs/RC9ZUuhBhcwDM2BwOgoMw+PZ+beqQ==",
+        "dependencies": {
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.0",
+          "System.Diagnostics.DiagnosticSource": "10.0.0"
+        }
+      },
+      "Polly": {
+        "type": "CentralTransitive",
+        "requested": "[8.6.5, )",
+        "resolved": "8.6.5",
+        "contentHash": "VqtW2ZE/ALvQMAH1cQY3qZ2cF2OXa3oe/HKMdOv6Q02HCoEW0rsFNfcBONXlHBe1TnjWW1vdRxBEkPeq0/2FHA==",
+        "dependencies": {
+          "Polly.Core": "8.6.5"
+        }
+      },
+      "System.IO.Hashing": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.0, )",
+        "resolved": "10.0.0",
+        "contentHash": "MqSp5IfX9RdWVwTED0WSRL1kZDNB7GlFj64O/NAJs4uO1beBHWEAFLlC7j8Fw/PkI+SUzooLVNvAe4aEkSwsRg=="
+      }
+    }
+  }
+}

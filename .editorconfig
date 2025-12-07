@@ -1,0 +1,25 @@
+# top-most EditorConfig file
+root = true
+
+[*]
+end_of_line = lf
+insert_final_newline = true
+charset = utf-8
+trim_trailing_whitespace = true
+
+[*.cs]
+# Enable analysis and set severity for categories of rules.
+# Critical rules remain as warnings, suboptimal/nice-to-have are suggestions
+dotnet_analyzer_diagnostic.category-Style.severity = suggestion
+dotnet_analyzer_diagnostic.category-Naming.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.severity = suggestion
+dotnet_analyzer_diagnostic.category-Design.severity = suggestion
+dotnet_analyzer_diagnostic.category-Maintainability.severity = suggestion
+dotnet_analyzer_diagnostic.category-Usage.severity = warning
+
+# Relax performance micro-optimizations that hurt readability
+dotnet_diagnostic.CA1848.severity = suggestion  # LoggerMessage delegates (premature optimization)
+
+# Test files - allow underscores in method names
+[tests/**/*.cs]
+dotnet_diagnostic.CA1707.severity = none  # Allow underscores in test method names
