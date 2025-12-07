@@ -7,7 +7,9 @@
   </PropertyGroup>
 
   <ItemGroup Label="Production Dependencies">
+    <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.0" />
     <PackageVersion Include="Polly" Version="8.6.5" />
     <PackageVersion Include="System.IO.Hashing" Version="10.0.0" />
   </ItemGroup>
