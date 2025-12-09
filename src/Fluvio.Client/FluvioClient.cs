@@ -378,6 +378,9 @@ public sealed class FluvioClient : IFluvioClient
     /// <returns>True if compatible, false otherwise.</returns>
     private static bool IsVersionCompatible(string clusterVersion, string minimumVersion)
     {
+        // Allow 0.0.0 as it often indicates a dev/test cluster
+        if (clusterVersion == "0.0.0") return true;
+
         try
         {
             // Parse versions using System.Version (semver-compatible)
