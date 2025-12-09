@@ -1,8 +1,8 @@
 <Project>
   <PropertyGroup>
     <Authors>Andreas Vilinski</Authors>
-    <RepositoryUrl>https://github.com/vilinski/fluvio-dotnet-client</RepositoryUrl>
-    <PackageProjectUrl>https://github.com/vilinski/fluvio-dotnet-client</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/vilinski/Fluvio.Client</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/vilinski/Fluvio.Client</PackageProjectUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <IncludeSymbols>true</IncludeSymbols>

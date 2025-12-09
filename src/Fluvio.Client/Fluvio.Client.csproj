@@ -25,7 +25,7 @@
     <!-- NuGet Package Properties -->
     <PackageId>Fluvio.Client</PackageId>
     <Version>0.1.0</Version>
-    <Description>Pure managed .NET client for Fluvio streaming platform. Implements the Fluvio wire protocol in C# for producing, consuming, and managing topics.</Description>
+    <Description>Pure managed .NET client for high performance streaming platform fluvio.io.</Description>
     <PackageTags>fluvio;streaming;kafka;event-streaming;distributed-systems</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>

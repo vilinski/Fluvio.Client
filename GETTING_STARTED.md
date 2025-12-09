@@ -34,8 +34,8 @@ dotnet add package Fluvio.Client
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/fluvio-dotnet-client.git
-cd fluvio-dotnet-client
+git clone https://github.com/vilinski/Fluvio.Client.git
+cd Fluvio.Client
 
 # Build the solution
 dotnet build

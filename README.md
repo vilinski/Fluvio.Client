@@ -1,5 +1,8 @@
 # Fluvio.Client - Pure Managed .NET Client for Fluvio
 
+[![Build Status](https://github.com/vilinski/Fluvio.Client/actions/workflows/build.yml/badge.svg)](https://github.com/vilinski/Fluvio.Client/actions/workflows/build.yml)
+[![NuGet](https://img.shields.io/nuget/v/Fluvio.Client.svg)](https://www.nuget.org/packages/Fluvio.Client)
+
 A pure managed .NET client library for [Fluvio](https://www.fluvio.io/), the distributed streaming platform. This client is built entirely in C# without native dependencies, implementing the Fluvio wire protocol directly.
 
 ## Features
