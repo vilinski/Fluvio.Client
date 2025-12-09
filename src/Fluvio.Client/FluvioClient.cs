@@ -342,6 +342,13 @@ public sealed class FluvioClient : IFluvioClient
                 return;
             }
 
+            // 0.0.0 is the default version for local/dev clusters - allow it
+            if (platformVersion == "0.0.0")
+            {
+                _logger.LogInformation("Platform version 0.0.0 detected (local/dev cluster), skipping version check");
+                return;
+            }
+
             _logger.LogInformation("Fluvio cluster platform version: {PlatformVersion}", platformVersion);
 
             // Validate version
