@@ -73,6 +73,18 @@ internal static partial class Native
     [LibraryImport(LibraryName, EntryPoint = "ffi_producer_drop")]
     internal static partial void ProducerDrop(nint producer);
 
+    [LibraryImport(LibraryName, EntryPoint = "ffi_consumer_fetch_batch")]
+    internal static unsafe partial void ConsumerFetchBatch(nint client, byte* topic, nuint topicLen, uint partition, long offset, uint maxBytes, Tcb tcb);
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_record_array_free")]
+    internal static partial void RecordArrayFree(nint ptr);
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_consumer_fetch_last_offset")]
+    internal static unsafe partial void ConsumerFetchLastOffset(nint client, byte* consumerId, nuint consumerIdLen, byte* topic, nuint topicLen, uint partition, Tcb tcb);
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_consumer_commit_offset")]
+    internal static unsafe partial void ConsumerCommitOffset(nint client, byte* consumerId, nuint consumerIdLen, byte* topic, nuint topicLen, uint partition, long offset, Tcb tcb);
+
     internal static unsafe string? ReadAndFreeString(nint ptr)
     {
         if (ptr == 0) return null;

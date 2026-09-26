@@ -168,8 +168,7 @@ public sealed class FluvioClient : IFluvioClient
     public IFluvioConsumer Consumer(ConsumerOptions? options = null)
     {
         EnsureConnected();
-        throw new NotSupportedException(
-            "Consumer() is not yet backed by the native FFI layer; it will be wired up when the consumer FFI is implemented.");
+        return new Consumer.FluvioConsumer(_handle, options, _options.ClientId, _logger);
     }
 
     /// <summary>
