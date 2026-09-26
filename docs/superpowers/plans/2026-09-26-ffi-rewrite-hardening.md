@@ -583,7 +583,7 @@ a future plan revision.
 - Consumes: Task 2's `CancellationBridge`/cancellation wiring on `ProducerSend`/`ProducerFlush`.
 - Produces: `FluvioProducer` internally links any caller-supplied `CancellationToken` with a 30-second timeout via `CancellationTokenSource.CreateLinkedTokenSource` before calling into native, for both `SendAsync` and `FlushAsync`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Since this doesn't need a real cluster (it tests C#-level timeout wiring, not native behavior), fake it by asserting the linked token's timeout is set correctly via a small internal seam:
 
@@ -623,12 +623,12 @@ public class ProducerTimeoutTests
 }
 ```
 
-- [ ] **Step 2: Run to confirm it fails**
+- [x] **Step 2: Run to confirm it fails**
 
 Run: `dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~ProducerTimeoutTests"`
 Expected: FAIL (method doesn't exist / doesn't compile).
 
-- [ ] **Step 3: Implement cleanly**
+- [x] **Step 3: Implement cleanly**
 
 ```csharp
 // src/Fluvio.Client/Producer/FluvioProducer.cs
@@ -650,12 +650,12 @@ public async Task<long> SendAsync(string topic, ReadOnlyMemory<byte> value, Read
 }
 ```
 
-- [ ] **Step 4: Run to confirm it passes**
+- [x] **Step 4: Run to confirm it passes**
 
 Run: `dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~ProducerTimeoutTests"`
 Expected: PASS.
 
-- [ ] **Step 5: Add one real integration test proving the timeout actually aborts a stalled send**
+- [x] **Step 5: Add one real integration test proving the timeout actually aborts a stalled send**
 
 This can't easily simulate a stalled broker without infrastructure control; instead assert the wiring end-to-end with a very short timeout override for testability:
 
@@ -692,12 +692,37 @@ public async Task SendAsync_RespectsInternalTimeout_WhenSetVeryShort()
 Run: `FLUVIO_TEST_PROFILE=local dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~SendAsync_RespectsInternalTimeout"`
 Expected: PASS (completes within 5s either way, proving no hang).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/Fluvio.Client/Producer/FluvioProducer.cs tests/Fluvio.Client.Tests/Producer/ProducerTimeoutTests.cs tests/Fluvio.Client.Tests/Integration/ProducerIntegrationTests.cs
 git commit -m "fix: bound producer send/flush with a 30s timeout, matching prior documented behavior"
 ```
+
+**Verification notes (orchestrator, post-execution):** the executing session again got stuck in a
+background-wait loop without committing; orchestrator picked up verification directly (second occurrence
+of this pattern — worth a harness/prompt-design fix before running more tasks this way). Found and fixed
+a real cross-test contamination bug while verifying: the plan's own Step 5 design (a mutable
+`SendTimeoutOverride` static field flipped by a test) leaked across concurrently-scheduled xUnit test
+classes even with collection parallelization nominally disabled, causing unrelated `BatchFlushIntegrationTests`
+sends to fail with `TaskCanceledException`. Fixed by removing the mutable static entirely — `CreateSendTimeoutSource`
+now takes an optional `TimeSpan? timeout` parameter instead, and the integration test passes an
+already-short-fused token as the caller token rather than mutating shared state. No static state is
+shared between tests, so it cannot leak regardless of xUnit's scheduling. Verified: 13 native tests, 75
+unit tests (73 + 2 new), and the specific `SendAsync_RespectsInternalTimeout_WhenVeryShort` test pass
+cleanly on both `local` (778ms) and `hetzner-tls` (932ms).
+
+Also discovered (unrelated to this task, real, but out of scope — noted for the backlog): running several
+`ProducerIntegrationTests` back-to-back against the `local` dev cluster intermittently hits a genuine
+60-second socket timeout **inside the official `fluvio` Rust crate itself** ("Socket io Timed out: 60
+secs waiting for response. API_KEY=1001" — this is the `fluvio-socket`/`fluvio-protocol` crate's own
+error text, not ours) on a plain `CreateTopicAsync` call, reproducing even on vanilla tests untouched by
+this plan (`SendAsync_SingleMessage_Success`). It happens regardless of `xunit.parallelizeTestCollections`
+and survives a full cluster reset, so it is not test-parallelism contention (ruled out by direct testing)
+but appears to be the local single-node dev SC becoming unresponsive after a number of sequential
+`Fluvio::connect_with_config` + `admin()` cycles in a short window — possibly connections not being torn
+down promptly on the SC side between test-per-`FluvioClient` reconnects. Needs its own investigation task
+in a future plan revision; does not reproduce against `hetzner-tls` in the runs so far.
 
 ---
 
