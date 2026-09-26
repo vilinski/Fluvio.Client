@@ -1835,7 +1835,7 @@ git commit -m "chore: remove obsolete managed wire-protocol code and unused depe
 - Consumes: `native/fluvio-dotnet` crate from Task 1 (built per-RID).
 - Produces: `dotnet build` auto-builds the native crate in debug mode; `dotnet pack -p:RuntimeIdentifier=<rid>` produces a NuGet package containing `runtimes/<rid>/native/<libname>`.
 
-- [ ] **Step 1: Add the `BuildNativeDebug` target so plain `dotnet build` builds the Rust crate**
+- [x] **Step 1: Add the `BuildNativeDebug` target so plain `dotnet build` builds the Rust crate**
 
 ```xml
 <!-- append inside the <Project> element of src/Fluvio.Client/Fluvio.Client.csproj -->
@@ -1844,7 +1844,7 @@ git commit -m "chore: remove obsolete managed wire-protocol code and unused depe
 </Target>
 ```
 
-- [ ] **Step 2: Add the RID-specific release build, copy, and packaging targets**
+- [x] **Step 2: Add the RID-specific release build, copy, and packaging targets**
 
 ```xml
 <PropertyGroup>
@@ -1880,17 +1880,17 @@ git commit -m "chore: remove obsolete managed wire-protocol code and unused depe
 </Target>
 ```
 
-- [ ] **Step 3: Verify plain `dotnet build` works from a clean checkout**
+- [x] **Step 3: Verify plain `dotnet build` works from a clean checkout**
 
 Run: `rm -rf native/fluvio-dotnet/target && dotnet build src/Fluvio.Client/Fluvio.Client.csproj`
 Expected: `BuildNativeDebug` runs `cargo build` before the C# compile step, and the debug native library ends up at `native/fluvio-dotnet/target/debug/`, discoverable by `Native.cs`'s resolver from Task 2 without setting `FLUVIO_DOTNET_NATIVE_PATH`.
 
-- [ ] **Step 4: Verify RID-specific packing produces the expected `runtimes/` layout**
+- [x] **Step 4: Verify RID-specific packing produces the expected `runtimes/` layout**
 
 Run: `dotnet pack src/Fluvio.Client/Fluvio.Client.csproj -c Release -p:RuntimeIdentifier=$(rustc -vV | awk '/host/{print $2}' | grep -q darwin && echo osx-arm64 || echo linux-x64) -o /tmp/fluvio-pack-test`
 Expected: the produced `.nupkg` (inspect via `unzip -l /tmp/fluvio-pack-test/*.nupkg`) contains `runtimes/<rid>/native/<libname>`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/Fluvio.Client/Fluvio.Client.csproj
