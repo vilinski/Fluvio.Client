@@ -295,4 +295,22 @@ public class ProducerIntegrationTests : FluvioIntegrationTestBase
             await CleanupTopicAsync(topicName);
         }
     }
+
+    [Fact]
+    public async Task SendAsync_CancelledBeforeCompletion_ThrowsTaskCanceledException()
+    {
+        var topic = await CreateTestTopicAsync();
+        try
+        {
+            var producer = Client!.Producer();
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+            await Assert.ThrowsAsync<TaskCanceledException>(
+                () => producer.SendAsync(topic, new byte[] { 1, 2, 3 }, cancellationToken: cts.Token));
+        }
+        finally
+        {
+            await CleanupTopicAsync(topic);
+        }
+    }
 }

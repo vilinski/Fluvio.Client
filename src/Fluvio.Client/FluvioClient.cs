@@ -61,6 +61,8 @@ public sealed class FluvioClient : IFluvioClient
             // CallAsync (CS1764), so its address is captured as a plain nint instead
             // and cast back to a pointer inside the lambda; the fixed block's pin is
             // still in effect because CallAsync invokes the lambda synchronously.
+            var (cancelHandle, registration) = Interop.CancellationBridge.Create(cancellationToken);
+            using var _ = registration;
             Task<nint> connectTask;
             unsafe
             {
@@ -71,7 +73,7 @@ public sealed class FluvioClient : IFluvioClient
                     {
                         unsafe
                         {
-                            Interop.Native.ClientConnect((byte*)configAddr, (nuint)bytes.Length, tcb);
+                            Interop.Native.ClientConnect((byte*)configAddr, (nuint)bytes.Length, cancelHandle, tcb);
                         }
                     });
                 }
@@ -164,8 +166,10 @@ public sealed class FluvioClient : IFluvioClient
 
         try
         {
+            var (cancelHandle, registration) = Interop.CancellationBridge.Create(cancellationToken);
+            using var _ = registration;
             var jsonPtr = await _handle.RunAsyncWithIncrement(h =>
-                Interop.Callbacks.CallAsync(tcb => Interop.Native.ClientHealthCheck(h, tcb))).ConfigureAwait(false);
+                Interop.Callbacks.CallAsync(tcb => Interop.Native.ClientHealthCheck(h, cancelHandle, tcb))).ConfigureAwait(false);
             var json = Interop.Native.ReadAndFreeString(jsonPtr);
             var result = FluvioNativeConfig.ParseHealth(json);
             _logger.LogInformation("Health check completed: IsHealthy={IsHealthy}", result.IsHealthy);

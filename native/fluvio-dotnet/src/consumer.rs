@@ -26,7 +26,7 @@
 //   around, so a short `tokio::time::timeout` around `stream.next()` is kept only as a
 //   best-effort bound rather than the primary termination mechanism.
 use crate::ffi_types::box_record;
-use crate::tcb::{complete_error, complete_success, Tcb};
+use crate::tcb::{complete_error, complete_failure, complete_success, Tcb};
 use fluvio::consumer::{
     BoxConsumerStream, ConsumerConfigExt, ConsumerOffset, ConsumerStream, OffsetManagementStrategy,
     RetryMode,
@@ -49,34 +49,57 @@ pub extern "C" fn ffi_consumer_fetch_batch(
     client: *mut c_void,
     topic: *const u8, topic_len: usize,
     partition: u32, offset: i64, max_bytes: u32,
+    cancel: *mut c_void,
     tcb: Tcb,
 ) {
     // Captured as a plain address (rather than the raw pointer) because raw pointers are
     // not `Send`, even though the `Fluvio` value they point to is; the pointer is only
     // ever dereferenced on the Tokio worker thread that runs this spawned task.
     let client_addr = client as usize;
+    let cancel_addr = cancel as usize;
     let topic = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(topic, topic_len) }).into_owned();
     crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         // `*mut c_void` is not `Send`, so the in-progress record pointers are carried across
         // await points as plain `usize` addresses and cast back to pointers only once the
         // async block (and thus the spawned future) has finished.
-        let result: anyhow::Result<Vec<usize>> = async {
+        let work = async {
+            // Deliberately continuous (unlike this function's pre-Task-2 config): with
+            // `disable_continuous(true)` + `RetryMode::Disabled`, `stream.next()` returned
+            // `None` almost immediately once there was nothing buffered, so removing the old
+            // per-record timeout would have been a no-op for the empty-topic case (it never
+            // actually waited) — the `FetchBatchAsync_EmptyTopic_BlocksUntilTimeout` regression
+            // test requires a real block there, bounded only by the caller's cancellation.
             let config = ConsumerConfigExt::builder()
                 .topic(topic)
                 .partition(partition)
                 .offset_start(Offset::absolute(offset)?)
                 .offset_strategy(OffsetManagementStrategy::None)
-                .disable_continuous(true)
-                .retry_mode(RetryMode::Disabled)
                 .max_bytes(max_bytes as i32)
                 .build()?;
             let mut stream = client.consumer_with_config(config).await?;
             let mut out = Vec::new();
             let mut bytes_read = 0usize;
-            while bytes_read < max_bytes as usize {
-                match tokio::time::timeout(Duration::from_millis(500), stream.next()).await {
-                    Ok(Some(Ok(record))) => {
+            loop {
+                if bytes_read >= max_bytes as usize { break; }
+                // The *first* record is awaited with no internal bound at all — only the
+                // caller's `cancel` handle (raced around this whole `work` future below) can
+                // stop that wait, which is what makes the empty-topic regression test genuine.
+                // Once at least one record has arrived, a short grace-period timeout lets a
+                // finite batch (fewer bytes than `max_bytes`, no further producer activity)
+                // return what it already has instead of waiting forever for more data that
+                // will never come; this never fights an explicit `CancellationToken`, since a
+                // shorter caller-driven cancellation still wins the outer race regardless.
+                let next = if out.is_empty() {
+                    stream.next().await
+                } else {
+                    match tokio::time::timeout(Duration::from_millis(200), stream.next()).await {
+                        Ok(next) => next,
+                        Err(_elapsed) => break,
+                    }
+                };
+                match next {
+                    Some(Ok(record)) => {
                         bytes_read += record.value().len();
                         out.push(box_record(
                             record.offset(), record.timestamp(), partition,
@@ -84,21 +107,25 @@ pub extern "C" fn ffi_consumer_fetch_batch(
                             record.value().to_vec(),
                         ) as usize);
                     }
-                    Ok(Some(Err(e))) => return Err(anyhow::anyhow!("{e}")),
-                    _ => break,
+                    Some(Err(e)) => return Err(anyhow::anyhow!("{e}")),
+                    None => break,
                 }
             }
-            Ok(out)
-        }.await;
+            Ok::<_, anyhow::Error>(out)
+        };
+        let result = unsafe { crate::cancel::race(cancel_addr, work).await };
         match result {
-            Ok(records) => {
+            Ok(Ok(records)) => {
                 let records: Vec<*mut c_void> = records.into_iter().map(|p| p as *mut c_void).collect();
                 let boxed = records.into_boxed_slice();
                 let array = Box::new(FFIRecordArray { records: boxed.as_ptr() as *mut *mut c_void, len: boxed.len() });
                 std::mem::forget(boxed);
                 unsafe { complete_success(tcb, Box::into_raw(array) as *mut c_void) };
             }
-            Err(e) => unsafe { complete_error(tcb, e) },
+            Ok(Err(e)) => unsafe { complete_error(tcb, e) },
+            Err(crate::cancel::Cancelled) => unsafe {
+                complete_failure(tcb, crate::error::codes::CANCELLED, "cancelled".to_string())
+            },
         }
     });
 }
@@ -121,15 +148,18 @@ pub extern "C" fn ffi_consumer_fetch_last_offset(
     consumer_id: *const u8, consumer_id_len: usize,
     topic: *const u8, topic_len: usize,
     partition: u32,
+    cancel: *mut c_void,
     tcb: Tcb,
 ) {
     let client_addr = client as usize;
+    let cancel_addr = cancel as usize;
     let consumer_id = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(consumer_id, consumer_id_len) }).into_owned();
     let topic = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(topic, topic_len) }).into_owned();
     crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
-        match client.consumer_offsets().await {
-            Ok(offsets) => {
+        let work = client.consumer_offsets();
+        match unsafe { crate::cancel::race(cancel_addr, work).await } {
+            Ok(Ok(offsets)) => {
                 let found = offsets.into_iter().find(|o: &ConsumerOffset| {
                     o.consumer_id == consumer_id && o.topic == topic && o.partition == partition
                 });
@@ -138,7 +168,10 @@ pub extern "C" fn ffi_consumer_fetch_last_offset(
                     None => unsafe { complete_success(tcb, (-1i64) as *mut c_void) },
                 }
             }
-            Err(e) => unsafe { complete_error(tcb, e) },
+            Ok(Err(e)) => unsafe { complete_error(tcb, e) },
+            Err(crate::cancel::Cancelled) => unsafe {
+                complete_failure(tcb, crate::error::codes::CANCELLED, "cancelled".to_string())
+            },
         }
     });
 }
@@ -149,15 +182,17 @@ pub extern "C" fn ffi_consumer_commit_offset(
     consumer_id: *const u8, consumer_id_len: usize,
     topic: *const u8, topic_len: usize,
     partition: u32, offset: i64,
+    cancel: *mut c_void,
     tcb: Tcb,
 ) {
     let client_addr = client as usize;
+    let cancel_addr = cancel as usize;
     let consumer_id = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(consumer_id, consumer_id_len) }).into_owned();
     let topic = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(topic, topic_len) }).into_owned();
     crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let topic_for_err = topic.clone();
-        let result: anyhow::Result<()> = async {
+        let work = async {
             let config = ConsumerConfigExt::builder()
                 .topic(topic)
                 .partition(partition)
@@ -179,10 +214,13 @@ pub extern "C" fn ffi_consumer_commit_offset(
                     "commit_offset: no record found at offset {offset} for topic '{topic_for_err}' partition {partition} within timeout"
                 )),
             }
-        }.await;
-        match result {
-            Ok(()) => unsafe { complete_success(tcb, std::ptr::null_mut()) },
-            Err(e) => unsafe { complete_error(tcb, e) },
+        };
+        match unsafe { crate::cancel::race(cancel_addr, work).await } {
+            Ok(Ok(())) => unsafe { complete_success(tcb, std::ptr::null_mut()) },
+            Ok(Err(e)) => unsafe { complete_error(tcb, e) },
+            Err(crate::cancel::Cancelled) => unsafe {
+                complete_failure(tcb, crate::error::codes::CANCELLED, "cancelled".to_string())
+            },
         }
     });
 }

@@ -86,4 +86,13 @@ public class AdminIntegrationTests : FluvioIntegrationTestBase
         var topic = await admin.GetTopicAsync(topicName);
         Assert.Null(topic);
     }
+
+    [Fact]
+    public async Task ListTopicsAsync_CancelledBeforeCompletion_ThrowsTaskCanceledException()
+    {
+        var admin = Client!.Admin();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        await Assert.ThrowsAsync<TaskCanceledException>(() => admin.ListTopicsAsync(cts.Token));
+    }
 }

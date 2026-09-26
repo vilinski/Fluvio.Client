@@ -59,6 +59,8 @@ internal sealed class FluvioProducer : IFluvioProducer
             var valueArray = value.ToArray();
             var keyArray = key?.ToArray();
 
+            var (cancelHandle, registration) = CancellationBridge.Create(cancellationToken);
+            using var _cancelReg = registration;
             var offset = await producerHandle.RunAsyncWithIncrement(async h =>
             {
                 Task<nint> callTask;
@@ -77,6 +79,7 @@ internal sealed class FluvioProducer : IFluvioProducer
                                     h,
                                     (byte*)keyAddr, (nuint)(keyArray?.Length ?? 0),
                                     (byte*)valueAddr, (nuint)valueArray.Length,
+                                    cancelHandle,
                                     tcb);
                             }
                         });
@@ -127,8 +130,10 @@ internal sealed class FluvioProducer : IFluvioProducer
 
         foreach (var handle in _producerHandlesByTopic.Values)
         {
+            var (cancelHandle, registration) = CancellationBridge.Create(cancellationToken);
+            using var _ = registration;
             await handle.RunAsyncWithIncrement(h =>
-                Callbacks.CallAsync(tcb => Native.ProducerFlush(h, tcb))).ConfigureAwait(false);
+                Callbacks.CallAsync(tcb => Native.ProducerFlush(h, cancelHandle, tcb))).ConfigureAwait(false);
         }
     }
 
@@ -166,6 +171,8 @@ internal sealed class FluvioProducer : IFluvioProducer
             }
 
             var topicBytes = Encoding.UTF8.GetBytes(topic);
+            var (cancelHandle, registration) = CancellationBridge.Create(cancellationToken);
+            using var _cancelReg = registration;
             var resultPtr = await _clientHandle.RunAsyncWithIncrement(async ch =>
             {
                 Task<nint> callTask;
@@ -178,7 +185,7 @@ internal sealed class FluvioProducer : IFluvioProducer
                         {
                             unsafe
                             {
-                                Native.ProducerNew(ch, (byte*)topicAddr, (nuint)topicBytes.Length, tcb);
+                                Native.ProducerNew(ch, (byte*)topicAddr, (nuint)topicBytes.Length, cancelHandle, tcb);
                             }
                         });
                     }
@@ -212,8 +219,10 @@ internal sealed class FluvioProducer : IFluvioProducer
         {
             try
             {
+                var (cancelHandle, registration) = CancellationBridge.Create(CancellationToken.None);
+                using var _ = registration;
                 await handle.RunAsyncWithIncrement(h =>
-                    Callbacks.CallAsync(tcb => Native.ProducerFlush(h, tcb))).ConfigureAwait(false);
+                    Callbacks.CallAsync(tcb => Native.ProducerFlush(h, cancelHandle, tcb))).ConfigureAwait(false);
             }
             catch
             {

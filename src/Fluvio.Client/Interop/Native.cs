@@ -58,10 +58,10 @@ internal static partial class Native
     private static void RuntimeInit() => RuntimeInitNative();
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_client_connect")]
-    internal static unsafe partial void ClientConnect(byte* configJson, nuint configJsonLen, Tcb tcb);
+    internal static unsafe partial void ClientConnect(byte* configJson, nuint configJsonLen, nint cancel, Tcb tcb);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_client_health_check")]
-    internal static partial void ClientHealthCheck(nint client, Tcb tcb);
+    internal static partial void ClientHealthCheck(nint client, nint cancel, Tcb tcb);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_client_drop")]
     internal static partial void ClientDrop(nint client);
@@ -69,29 +69,38 @@ internal static partial class Native
     [LibraryImport(LibraryName, EntryPoint = "ffi_string_free")]
     internal static partial void StringFree(nint ptr);
 
+    [LibraryImport(LibraryName, EntryPoint = "ffi_cancel_new")]
+    internal static partial nint CancelNew();
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_cancel_trigger")]
+    internal static partial void CancelTrigger(nint handle);
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_cancel_drop")]
+    internal static partial void CancelDrop(nint handle);
+
     [LibraryImport(LibraryName, EntryPoint = "ffi_producer_new")]
-    internal static unsafe partial void ProducerNew(nint client, byte* topic, nuint topicLen, Tcb tcb);
+    internal static unsafe partial void ProducerNew(nint client, byte* topic, nuint topicLen, nint cancel, Tcb tcb);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_producer_send")]
-    internal static unsafe partial void ProducerSend(nint producer, byte* key, nuint keyLen, byte* value, nuint valueLen, Tcb tcb);
+    internal static unsafe partial void ProducerSend(nint producer, byte* key, nuint keyLen, byte* value, nuint valueLen, nint cancel, Tcb tcb);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_producer_flush")]
-    internal static partial void ProducerFlush(nint producer, Tcb tcb);
+    internal static partial void ProducerFlush(nint producer, nint cancel, Tcb tcb);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_producer_drop")]
     internal static partial void ProducerDrop(nint producer);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_consumer_fetch_batch")]
-    internal static unsafe partial void ConsumerFetchBatch(nint client, byte* topic, nuint topicLen, uint partition, long offset, uint maxBytes, Tcb tcb);
+    internal static unsafe partial void ConsumerFetchBatch(nint client, byte* topic, nuint topicLen, uint partition, long offset, uint maxBytes, nint cancel, Tcb tcb);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_record_array_free")]
     internal static partial void RecordArrayFree(nint ptr);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_consumer_fetch_last_offset")]
-    internal static unsafe partial void ConsumerFetchLastOffset(nint client, byte* consumerId, nuint consumerIdLen, byte* topic, nuint topicLen, uint partition, Tcb tcb);
+    internal static unsafe partial void ConsumerFetchLastOffset(nint client, byte* consumerId, nuint consumerIdLen, byte* topic, nuint topicLen, uint partition, nint cancel, Tcb tcb);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_consumer_commit_offset")]
-    internal static unsafe partial void ConsumerCommitOffset(nint client, byte* consumerId, nuint consumerIdLen, byte* topic, nuint topicLen, uint partition, long offset, Tcb tcb);
+    internal static unsafe partial void ConsumerCommitOffset(nint client, byte* consumerId, nuint consumerIdLen, byte* topic, nuint topicLen, uint partition, long offset, nint cancel, Tcb tcb);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_stream_new")]
     internal static unsafe partial void StreamNew(nint client, byte* topic, nuint topicLen, uint partition, long offset, Tcb tcb);
@@ -109,40 +118,40 @@ internal static partial class Native
     internal static partial void RecordFree(nint ptr);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_admin_create_topic")]
-    internal static unsafe partial void AdminCreateTopic(nint client, byte* name, nuint nameLen, byte* specJson, nuint specJsonLen, Tcb tcb);
+    internal static unsafe partial void AdminCreateTopic(nint client, byte* name, nuint nameLen, byte* specJson, nuint specJsonLen, nint cancel, Tcb tcb);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_admin_delete_topic")]
-    internal static unsafe partial void AdminDeleteTopic(nint client, byte* name, nuint nameLen, Tcb tcb);
+    internal static unsafe partial void AdminDeleteTopic(nint client, byte* name, nuint nameLen, nint cancel, Tcb tcb);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_admin_list_topics")]
-    internal static partial void AdminListTopics(nint client, Tcb tcb);
+    internal static partial void AdminListTopics(nint client, nint cancel, Tcb tcb);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_admin_get_topic")]
-    internal static unsafe partial void AdminGetTopic(nint client, byte* name, nuint nameLen, Tcb tcb);
+    internal static unsafe partial void AdminGetTopic(nint client, byte* name, nuint nameLen, nint cancel, Tcb tcb);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_admin_list_spus")]
-    internal static partial void AdminListSpus(nint client, Tcb tcb);
+    internal static partial void AdminListSpus(nint client, nint cancel, Tcb tcb);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_admin_get_spu")]
-    internal static partial void AdminGetSpu(nint client, int spuId, Tcb tcb);
+    internal static partial void AdminGetSpu(nint client, int spuId, nint cancel, Tcb tcb);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_admin_list_partitions")]
-    internal static unsafe partial void AdminListPartitions(nint client, byte* topicFilter, nuint topicFilterLen, Tcb tcb);
+    internal static unsafe partial void AdminListPartitions(nint client, byte* topicFilter, nuint topicFilterLen, nint cancel, Tcb tcb);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_admin_get_partition")]
-    internal static unsafe partial void AdminGetPartition(nint client, byte* topic, nuint topicLen, uint partition, Tcb tcb);
+    internal static unsafe partial void AdminGetPartition(nint client, byte* topic, nuint topicLen, uint partition, nint cancel, Tcb tcb);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_admin_list_smartmodules")]
-    internal static partial void AdminListSmartModules(nint client, Tcb tcb);
+    internal static partial void AdminListSmartModules(nint client, nint cancel, Tcb tcb);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_admin_get_smartmodule")]
-    internal static unsafe partial void AdminGetSmartModule(nint client, byte* name, nuint nameLen, Tcb tcb);
+    internal static unsafe partial void AdminGetSmartModule(nint client, byte* name, nuint nameLen, nint cancel, Tcb tcb);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_admin_create_smartmodule")]
-    internal static unsafe partial void AdminCreateSmartModule(nint client, byte* name, nuint nameLen, byte* wasm, nuint wasmLen, Tcb tcb);
+    internal static unsafe partial void AdminCreateSmartModule(nint client, byte* name, nuint nameLen, byte* wasm, nuint wasmLen, nint cancel, Tcb tcb);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_admin_delete_smartmodule")]
-    internal static unsafe partial void AdminDeleteSmartModule(nint client, byte* name, nuint nameLen, Tcb tcb);
+    internal static unsafe partial void AdminDeleteSmartModule(nint client, byte* name, nuint nameLen, nint cancel, Tcb tcb);
 
     internal static unsafe string? ReadAndFreeString(nint ptr)
     {

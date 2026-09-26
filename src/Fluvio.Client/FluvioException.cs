@@ -89,7 +89,11 @@ public partial class FluvioException
             Codes.Connection => new FluvioConnectionException(msg),
             Codes.TopicNotFound => new TopicNotFoundException(msg),
             Codes.TopicAlreadyExists => new TopicAlreadyExistsException(msg),
-            Codes.Cancelled => new OperationCanceledException(msg),
+            // TaskCanceledException (an OperationCanceledException subclass) rather than the
+            // base type, matching the exact-type xunit assertion in the pre-existing
+            // FetchBatchAsync_EmptyTopic_BlocksUntilTimeout regression test, and matching the
+            // exception .NET's own Task infrastructure surfaces for a cancelled operation.
+            Codes.Cancelled => new TaskCanceledException(msg),
             _ => new FluvioException(msg),
         };
     }

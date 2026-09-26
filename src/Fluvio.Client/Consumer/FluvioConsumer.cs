@@ -137,8 +137,10 @@ internal sealed class FluvioConsumer : IFluvioConsumer
         activity?.SetTag(FluvioActivitySource.Tags.Partition, partition);
         activity?.SetTag(FluvioActivitySource.Tags.Offset, offset);
 
+        var (cancelHandle, registration) = CancellationBridge.Create(cancellationToken);
         try
         {
+            using var _ = registration;
             var topicBytes = Encoding.UTF8.GetBytes(topic);
             var arrayPtr = await _clientHandle.RunAsyncWithIncrement(async h =>
             {
@@ -152,7 +154,7 @@ internal sealed class FluvioConsumer : IFluvioConsumer
                         {
                             unsafe
                             {
-                                Native.ConsumerFetchBatch(h, (byte*)topicAddr, (nuint)topicBytes.Length, (uint)partition, offset, (uint)maxBytes, tcb);
+                                Native.ConsumerFetchBatch(h, (byte*)topicAddr, (nuint)topicBytes.Length, (uint)partition, offset, (uint)maxBytes, cancelHandle, tcb);
                             }
                         });
                     }
@@ -185,6 +187,8 @@ internal sealed class FluvioConsumer : IFluvioConsumer
     {
         var idBytes = Encoding.UTF8.GetBytes(consumerId);
         var topicBytes = Encoding.UTF8.GetBytes(topic);
+        var (cancelHandle, registration) = CancellationBridge.Create(cancellationToken);
+        using var _ = registration;
         var resultPtr = await _clientHandle.RunAsyncWithIncrement(async h =>
         {
             Task<nint> callTask;
@@ -199,7 +203,7 @@ internal sealed class FluvioConsumer : IFluvioConsumer
                     {
                         unsafe
                         {
-                            Native.ConsumerFetchLastOffset(h, (byte*)idAddr, (nuint)idBytes.Length, (byte*)topicAddr, (nuint)topicBytes.Length, (uint)partition, tcb);
+                            Native.ConsumerFetchLastOffset(h, (byte*)idAddr, (nuint)idBytes.Length, (byte*)topicAddr, (nuint)topicBytes.Length, (uint)partition, cancelHandle, tcb);
                         }
                     });
                 }
@@ -223,6 +227,8 @@ internal sealed class FluvioConsumer : IFluvioConsumer
     {
         var idBytes = Encoding.UTF8.GetBytes(consumerId);
         var topicBytes = Encoding.UTF8.GetBytes(topic);
+        var (cancelHandle, registration) = CancellationBridge.Create(cancellationToken);
+        using var _ = registration;
         await _clientHandle.RunAsyncWithIncrement(async h =>
         {
             Task<nint> callTask;
@@ -237,7 +243,7 @@ internal sealed class FluvioConsumer : IFluvioConsumer
                     {
                         unsafe
                         {
-                            Native.ConsumerCommitOffset(h, (byte*)idAddr, (nuint)idBytes.Length, (byte*)topicAddr, (nuint)topicBytes.Length, (uint)partition, offset, tcb);
+                            Native.ConsumerCommitOffset(h, (byte*)idAddr, (nuint)idBytes.Length, (byte*)topicAddr, (nuint)topicBytes.Length, (uint)partition, offset, cancelHandle, tcb);
                         }
                     });
                 }

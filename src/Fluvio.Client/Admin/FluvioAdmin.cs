@@ -39,6 +39,8 @@ internal sealed class FluvioAdmin : IFluvioAdmin
         var specJson = BuildTopicSpecJson(spec);
         var specBytes = Encoding.UTF8.GetBytes(specJson);
 
+        var (cancelHandle, registration) = CancellationBridge.Create(cancellationToken);
+        using var _ = registration;
         Task<nint> task;
         unsafe
         {
@@ -52,7 +54,7 @@ internal sealed class FluvioAdmin : IFluvioAdmin
                     {
                         unsafe
                         {
-                            Native.AdminCreateTopic(h, (byte*)nameAddr, (nuint)nameBytes.Length, (byte*)specAddr, (nuint)specBytes.Length, tcb);
+                            Native.AdminCreateTopic(h, (byte*)nameAddr, (nuint)nameBytes.Length, (byte*)specAddr, (nuint)specBytes.Length, cancelHandle, tcb);
                         }
                     }));
             }
@@ -71,6 +73,8 @@ internal sealed class FluvioAdmin : IFluvioAdmin
         ValidateTopicName(name);
         var nameBytes = Encoding.UTF8.GetBytes(name);
 
+        var (cancelHandle, registration) = CancellationBridge.Create(cancellationToken);
+        using var _ = registration;
         Task<nint> task;
         unsafe
         {
@@ -82,7 +86,7 @@ internal sealed class FluvioAdmin : IFluvioAdmin
                     {
                         unsafe
                         {
-                            Native.AdminDeleteTopic(h, (byte*)nameAddr, (nuint)nameBytes.Length, tcb);
+                            Native.AdminDeleteTopic(h, (byte*)nameAddr, (nuint)nameBytes.Length, cancelHandle, tcb);
                         }
                     }));
             }
@@ -97,8 +101,10 @@ internal sealed class FluvioAdmin : IFluvioAdmin
     /// <returns>List of topic metadata.</returns>
     public async Task<IReadOnlyList<TopicMetadata>> ListTopicsAsync(CancellationToken cancellationToken = default)
     {
+        var (cancelHandle, registration) = CancellationBridge.Create(cancellationToken);
+        using var _ = registration;
         var jsonPtr = await _clientHandle.RunAsyncWithIncrement(h =>
-            Callbacks.CallAsync(tcb => Native.AdminListTopics(h, tcb))).ConfigureAwait(false);
+            Callbacks.CallAsync(tcb => Native.AdminListTopics(h, cancelHandle, tcb))).ConfigureAwait(false);
         var json = Native.ReadAndFreeString(jsonPtr);
         if (string.IsNullOrEmpty(json))
         {
@@ -124,6 +130,8 @@ internal sealed class FluvioAdmin : IFluvioAdmin
     {
         var nameBytes = Encoding.UTF8.GetBytes(name);
 
+        var (cancelHandle, registration) = CancellationBridge.Create(cancellationToken);
+        using var _ = registration;
         Task<nint> task;
         unsafe
         {
@@ -135,7 +143,7 @@ internal sealed class FluvioAdmin : IFluvioAdmin
                     {
                         unsafe
                         {
-                            Native.AdminGetTopic(h, (byte*)nameAddr, (nuint)nameBytes.Length, tcb);
+                            Native.AdminGetTopic(h, (byte*)nameAddr, (nuint)nameBytes.Length, cancelHandle, tcb);
                         }
                     }));
             }
