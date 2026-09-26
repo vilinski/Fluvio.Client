@@ -427,7 +427,7 @@ git commit -m "feat: scaffold Rust FFI crate with runtime, TCB, types, error inf
 - Produces (C#): `RustResource : SafeHandle` with `RunWithIncrement<T>(Func<nint,T>)` / `RunAsyncWithIncrement<T>(Func<nint,Task<T>>)`; `Callbacks.CallAsync(Action<Tcb> invoke) -> Task<nint>`; `Native.ClientConnect`, `Native.ClientHealthCheck`, `Native.ClientDrop`, `Native.ReadAndFreeString(nint)`; `FluvioException.FromCode(int code, string? message)`.
 - Consumed by: Tasks 3–6 use `RustResource`, `Callbacks.CallAsync`, and the same `Native`/`NativeTypes` scaffolding for their own handles.
 
-- [ ] **Step 1: Write `client.rs`**
+- [x] **Step 1: Write `client.rs`**
 
 ```rust
 // native/fluvio-dotnet/src/client.rs
@@ -489,12 +489,12 @@ pub unsafe extern "C" fn ffi_client_drop(client: *mut c_void) {
 
 Add `pub mod client;` to `native/fluvio-dotnet/src/lib.rs`.
 
-- [ ] **Step 2: Build the native crate and confirm it compiles**
+- [x] **Step 2: Build the native crate and confirm it compiles**
 
 Run: `cd native/fluvio-dotnet && cargo build`
 Expected: builds successfully (fix any `fluvio` crate API mismatches surfaced by the compiler — `Fluvio::connect_with_config` and `FluvioConfig`'s `Deserialize` derive are the parts most likely to need adjustment against the exact 0.50.1 API; consult `cargo doc --open -p fluvio` if the signature differs).
 
-- [ ] **Step 3: Write the C# native-type mirrors**
+- [x] **Step 3: Write the C# native-type mirrors**
 
 ```csharp
 // src/Fluvio.Client/Interop/NativeTypes.cs
@@ -531,7 +531,7 @@ internal static class NativeTypeAsserts
 }
 ```
 
-- [ ] **Step 4: Write the callback bridge**
+- [x] **Step 4: Write the callback bridge**
 
 ```csharp
 // src/Fluvio.Client/Interop/Callbacks.cs
@@ -591,7 +591,7 @@ internal static class Callbacks
 }
 ```
 
-- [ ] **Step 5: Write `RustResource`**
+- [x] **Step 5: Write `RustResource`**
 
 ```csharp
 // src/Fluvio.Client/Interop/RustResource.cs
@@ -645,7 +645,7 @@ internal sealed class RustResource : SafeHandleZeroOrMinusOneIsInvalid
 }
 ```
 
-- [ ] **Step 6: Write `Native.cs` with resolution + P/Invoke declarations for this task's surface**
+- [x] **Step 6: Write `Native.cs` with resolution + P/Invoke declarations for this task's surface**
 
 ```csharp
 // src/Fluvio.Client/Interop/Native.cs
@@ -719,7 +719,7 @@ internal static partial class Native
 }
 ```
 
-- [ ] **Step 7: Add code-mapped exception subclasses**
+- [x] **Step 7: Add code-mapped exception subclasses**
 
 ```csharp
 // append to src/Fluvio.Client/FluvioException.cs
@@ -757,7 +757,7 @@ public partial class FluvioException
 
 Change `public class FluvioException : Exception` to `public partial class FluvioException : Exception` in the existing file so the `partial` block above compiles.
 
-- [ ] **Step 8: Rewrite `FluvioClient.cs` to connect via native FFI**
+- [x] **Step 8: Rewrite `FluvioClient.cs` to connect via native FFI**
 
 Replace the body of `ConnectAsync`/the static factory with:
 
@@ -790,12 +790,12 @@ public async Task<HealthCheckResult> CheckHealthAsync(CancellationToken cancella
 
 Add a private `readonly Interop.RustResource _handle;` field, a private constructor taking `(Interop.RustResource handle, FluvioClientOptions options)`, and implement `DisposeAsync` to call `_handle.Dispose()`. Add a small internal static `FluvioNativeConfig` helper (in the same file or a new `FluvioNativeConfig.cs`) with `ToJson(FluvioClientOptions)` building the `{"endpoint":...,"useTls":...}` JSON the Rust side deserializes into `FluvioConfig`, and `ParseHealth(string?)` building a `HealthCheckResult` from the JSON payload.
 
-- [ ] **Step 9: Build and run the existing connection integration test**
+- [x] **Step 9: Build and run the existing connection integration test**
 
 Run: `cd native/fluvio-dotnet && cargo build` then `dotnet build Fluvio.Client.sln` then, against a running Fluvio cluster, `dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~ConnectionIntegrationTests"`
 Expected: native crate builds; solution builds; `ConnectionIntegrationTests` passes using the new FFI-backed `ConnectAsync`/`CheckHealthAsync`.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add native/fluvio-dotnet src/Fluvio.Client/Interop src/Fluvio.Client/FluvioClient.cs src/Fluvio.Client/FluvioException.cs
