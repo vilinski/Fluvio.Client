@@ -819,7 +819,7 @@ git commit -m "feat: add client connect/health-check FFI and native interop brid
 - Produces (C#): `Native.ProducerNew/ProducerSend/ProducerFlush/ProducerDrop`.
 - Consumed by: none downstream (leaf task), but establishes the send/offset marshaling pattern reused conceptually by Task 4's fetch calls.
 
-- [ ] **Step 1: Write `producer.rs`**
+- [x] **Step 1: Write `producer.rs`**
 
 ```rust
 // native/fluvio-dotnet/src/producer.rs
@@ -892,12 +892,12 @@ pub unsafe extern "C" fn ffi_producer_drop(producer: *mut c_void) {
 
 Add `pub mod producer;` to `lib.rs`.
 
-- [ ] **Step 2: Build and fix any `fluvio` API mismatches**
+- [x] **Step 2: Build and fix any `fluvio` API mismatches**
 
 Run: `cd native/fluvio-dotnet && cargo build`
 Expected: builds; if `TopicProducer`'s actual send signature differs (e.g. returns a `RecordMetadata` rather than a bare offset, or batching type differs), adjust `ffi_producer_send` to extract the base offset field from whatever `fluvio` 0.50.1 actually returns — confirm via `cargo doc --open -p fluvio` and update this step's code to match before proceeding.
 
-- [ ] **Step 3: Add producer P/Invoke declarations**
+- [x] **Step 3: Add producer P/Invoke declarations**
 
 ```csharp
 // append inside Native class in src/Fluvio.Client/Interop/Native.cs
@@ -914,7 +914,7 @@ internal static partial void ProducerFlush(nint producer, Tcb tcb);
 internal static partial void ProducerDrop(nint producer);
 ```
 
-- [ ] **Step 4: Rewrite `FluvioProducer.cs`'s send/flush internals**
+- [x] **Step 4: Rewrite `FluvioProducer.cs`'s send/flush internals**
 
 ```csharp
 // inside FluvioProducer, replacing the wire-protocol send path
@@ -951,12 +951,12 @@ public async Task FlushAsync(CancellationToken cancellationToken = default)
 
 Add a `ConcurrentDictionary<string, Interop.RustResource> _producerHandlesByTopic` field and a `GetOrCreateProducerHandleAsync(string topic, CancellationToken ct)` helper that calls `Interop.Native.ProducerNew` via `Callbacks.CallAsync` once per topic and wraps the result in `new Interop.RustResource(ptr, Interop.Native.ProducerDrop)`, caching it. Update `SendBatchAsync` to loop `SendAsync` per record (batching optimization is out of scope for this task) and `DisposeAsync` to dispose every cached handle.
 
-- [ ] **Step 5: Run producer integration tests**
+- [x] **Step 5: Run producer integration tests**
 
 Run: `dotnet build Fluvio.Client.sln` then, against a running cluster, `dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~ProducerIntegrationTests|FullyQualifiedName~BatchFlushIntegrationTests"`
 Expected: both integration test classes pass against the FFI-backed producer.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add native/fluvio-dotnet src/Fluvio.Client/Interop/Native.cs src/Fluvio.Client/Producer/FluvioProducer.cs
