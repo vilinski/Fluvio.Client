@@ -53,3 +53,6 @@ Desktop.ini
 
 # BenchmarkDotNet
 **/BenchmarkDotNet.Artifacts/
+
+# Orchestration scratch files for agterm-driven task execution (not part of the codebase)
+.orchestration/
