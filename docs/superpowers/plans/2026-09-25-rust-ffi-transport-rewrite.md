@@ -88,7 +88,7 @@
 - Produces: `runtime::runtime() -> &'static tokio::runtime::Runtime`; `tcb::Tcb { tcs: *mut c_void, on_success: *mut c_void, on_failure: *mut c_void }` plus `unsafe fn complete_success(tcb: Tcb, result: *mut c_void)`, `unsafe fn complete_failure(tcb: Tcb, code: i32, msg: String)`, `unsafe fn complete_error(tcb: Tcb, e: anyhow::Error)`, `unsafe fn complete_string_success(tcb: Tcb, s: String)`; `ffi_types::{FFISlice, FFIString, FFIBool, FFIRecord}`; `error::codes::{GENERIC, CONNECTION, TOPIC_NOT_FOUND, TOPIC_ALREADY_EXISTS, CANCELLED, INVALID_ARGUMENT, UNAUTHORIZED}`; `error::to_ffi(&anyhow::Error) -> (i32, String)`; exported `#[no_mangle] extern "C" fn ffi_runtime_init() -> i32`.
 - Consumed by: Tasks 2–6 (every module spawns onto `runtime::runtime()` and completes via `tcb::complete_*`).
 
-- [ ] **Step 1: Scaffold the crate**
+- [x] **Step 1: Scaffold the crate**
 
 ```bash
 mkdir -p native/fluvio-dotnet/src
@@ -117,7 +117,7 @@ lto = "thin"
 EOF
 ```
 
-- [ ] **Step 2: Write `runtime.rs` with its own test**
+- [x] **Step 2: Write `runtime.rs` with its own test**
 
 ```rust
 // native/fluvio-dotnet/src/runtime.rs
@@ -157,7 +157,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 3: Write `ffi_types.rs` with size-assertion tests**
+- [x] **Step 3: Write `ffi_types.rs` with size-assertion tests**
 
 ```rust
 // native/fluvio-dotnet/src/ffi_types.rs
@@ -261,7 +261,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 4: Write `error.rs` with classification tests**
+- [x] **Step 4: Write `error.rs` with classification tests**
 
 ```rust
 // native/fluvio-dotnet/src/error.rs
@@ -324,7 +324,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 5: Write `tcb.rs`**
+- [x] **Step 5: Write `tcb.rs`**
 
 ```rust
 // native/fluvio-dotnet/src/tcb.rs
@@ -386,7 +386,7 @@ pub unsafe extern "C" fn ffi_string_free(ptr: *mut c_void) {
 }
 ```
 
-- [ ] **Step 6: Wire up `lib.rs` and run the test suite**
+- [x] **Step 6: Wire up `lib.rs` and run the test suite**
 
 ```rust
 // native/fluvio-dotnet/src/lib.rs
@@ -399,7 +399,7 @@ pub mod error;
 Run: `cd native/fluvio-dotnet && cargo test`
 Expected: all tests in `runtime`, `ffi_types`, `error` PASS; crate compiles as a `cdylib`.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add native/fluvio-dotnet
