@@ -37,39 +37,6 @@ public sealed class FluvioClient : IFluvioClient
     }
 
     /// <summary>
-    /// Merge provided options with default endpoints. Profile-based config resolution
-    /// (<c>~/.fluvio/config</c>) is delegated to the native Rust client (see spec §7);
-    /// this only fills in defaults for values the caller didn't provide.
-    /// </summary>
-    private static FluvioClientOptions MergeWithConfig(FluvioClientOptions? provided)
-    {
-        // If everything is provided, no need to apply defaults
-        if (provided is { SpuEndpoint: not null, ScEndpoint: not null, UseTls: not null })
-            return provided;
-
-        var spuEndpoint = provided?.SpuEndpoint ?? "localhost:9010";
-        var scEndpoint = provided?.ScEndpoint ?? "localhost:9003";
-        var useTls = provided?.UseTls ?? false;
-
-        if (provided != null)
-        {
-            return provided with
-            {
-                SpuEndpoint = spuEndpoint,
-                ScEndpoint = scEndpoint,
-                UseTls = useTls
-            };
-        }
-
-        return new FluvioClientOptions
-        {
-            SpuEndpoint = spuEndpoint,
-            ScEndpoint = scEndpoint,
-            UseTls = useTls
-        };
-    }
-
-    /// <summary>
     /// Creates a Fluvio client and connects to the cluster via the native FFI layer.
     /// </summary>
     /// <param name="options">Client options.</param>
@@ -77,15 +44,15 @@ public sealed class FluvioClient : IFluvioClient
     /// <returns>A connected <see cref="FluvioClient"/> instance.</returns>
     public static async Task<FluvioClient> ConnectAsync(FluvioClientOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var mergedOptions = MergeWithConfig(options);
+        var mergedOptions = options ?? new FluvioClientOptions();
         var logger = mergedOptions.LoggerFactory?.CreateLogger<FluvioClient>()
                      ?? NullLoggerFactory.Instance.CreateLogger<FluvioClient>();
         var metrics = mergedOptions.EnableMetrics ? new FluvioMetrics() : null;
 
-        var endpoint = mergedOptions.ScEndpoint ?? mergedOptions.SpuEndpoint ?? "localhost:9003";
+        var endpoint = mergedOptions.ScEndpoint ?? mergedOptions.SpuEndpoint ?? mergedOptions.Profile ?? "current profile";
         logger.LogInformation("Connecting to Fluvio cluster at {Endpoint}", endpoint);
 
-        var configJson = FluvioNativeConfig.ToJson(endpoint, mergedOptions.UseTls ?? false);
+        var configJson = FluvioNativeConfig.ToJson(mergedOptions);
         var bytes = Encoding.UTF8.GetBytes(configJson);
 
         try
@@ -225,11 +192,8 @@ public sealed class FluvioClient : IFluvioClient
         _disposed = true;
         _handle.Dispose();
 
-        var endpoint = _options.ScEndpoint ?? _options.SpuEndpoint;
-        if (endpoint != null)
-        {
-            _metrics?.DecrementActiveConnections(endpoint);
-        }
+        var endpoint = _options.ScEndpoint ?? _options.SpuEndpoint ?? _options.Profile ?? "current profile";
+        _metrics?.DecrementActiveConnections(endpoint);
         _metrics?.Dispose();
 
         _logger.LogInformation("Fluvio client disposed");
@@ -250,14 +214,17 @@ internal static class FluvioNativeConfig
     /// from this shape). Built with <see cref="Utf8JsonWriter"/>/<see cref="JsonDocument"/> rather
     /// than reflection-based <see cref="JsonSerializer"/> so this stays trim/AOT compatible.
     /// </summary>
-    public static string ToJson(string endpoint, bool useTls)
+    public static string ToJson(FluvioClientOptions options)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream))
         {
             writer.WriteStartObject();
-            writer.WriteString("endpoint", endpoint);
-            writer.WriteBoolean("useTls", useTls);
+            writer.WriteString("endpoint", options.ScEndpoint ?? options.SpuEndpoint);
+            writer.WriteString("profile", options.Profile);
+            writer.WriteString("clientId", options.ClientId);
+            if (options.UseTls is bool useTls)
+                writer.WriteBoolean("useTls", useTls);
             writer.WriteEndObject();
         }
         return Encoding.UTF8.GetString(stream.ToArray());

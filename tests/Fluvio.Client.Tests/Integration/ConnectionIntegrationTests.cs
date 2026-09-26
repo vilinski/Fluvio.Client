@@ -6,13 +6,9 @@ namespace Fluvio.Client.Tests.Integration;
 public class ConnectionIntegrationTests
 {
     [Fact]
-    public async Task ConnectAsync_LocalCluster_Success()
+    public async Task ConnectAsync_ConfiguredCluster_Success()
     {
-        var options = new FluvioClientOptions(
-            SpuEndpoint: "localhost:9010",
-            ScEndpoint: "localhost:9003",
-            UseTls: false
-        );
+        var options = IntegrationTestConfig.Create();
 
         await using var client = await FluvioClient.ConnectAsync(options);
 
@@ -22,12 +18,7 @@ public class ConnectionIntegrationTests
     [Fact]
     public async Task ConnectAsync_WithClientId_Success()
     {
-        var options = new FluvioClientOptions(
-            SpuEndpoint: "localhost:9010",
-            ScEndpoint: "localhost:9003",
-            UseTls: false,
-            ClientId: "test-connection"
-        );
+        var options = IntegrationTestConfig.Create("test-connection");
 
         await using var client = await FluvioClient.ConnectAsync(options);
 
@@ -51,13 +42,22 @@ public class ConnectionIntegrationTests
     }
 
     [Fact]
+    public async Task ConnectAsync_MissingProfile_DoesNotFallBackToExplicitEndpoint()
+    {
+        var options = IntegrationTestConfig.Create() with
+        {
+            Profile = $"missing-{Guid.NewGuid():N}",
+            ScEndpoint = "localhost:9003"
+        };
+
+        var error = await Assert.ThrowsAnyAsync<FluvioException>(() => FluvioClient.ConnectAsync(options));
+        Assert.Contains(options.Profile, error.Message);
+    }
+
+    [Fact]
     public async Task DisposeAsync_ClosesConnection()
     {
-        var options = new FluvioClientOptions(
-            SpuEndpoint: "localhost:9010",
-            ScEndpoint: "localhost:9003",
-            UseTls: false
-        );
+        var options = IntegrationTestConfig.Create();
 
         var client = await FluvioClient.ConnectAsync(options);
         await client.DisposeAsync();

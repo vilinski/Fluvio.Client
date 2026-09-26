@@ -36,9 +36,9 @@ public interface IFluvioClient : IAsyncDisposable
 /// <summary>
 /// Client configuration options.
 /// </summary>
-/// <param name="SpuEndpoint">SPU (Streaming Processing Unit) endpoint for data operations. Format: "host:port". If not provided, loaded from ~/.fluvio/config or defaults to "localhost:9010".</param>
-/// <param name="ScEndpoint">SC (Stream Controller) endpoint for admin operations. Format: "host:port". If not provided, loaded from ~/.fluvio/config or defaults to "localhost:9003".</param>
-/// <param name="UseTls">Whether to use TLS for connections. If not provided, loaded from ~/.fluvio/config or defaults to false.</param>
+/// <param name="SpuEndpoint">Legacy fallback endpoint when ScEndpoint is not supplied. The native client discovers SPU addresses from the cluster.</param>
+/// <param name="ScEndpoint">SC (Stream Controller) endpoint. Format: "host:port". Overrides the selected profile endpoint; without an explicit endpoint, the native client loads the selected or current profile.</param>
+/// <param name="UseTls">Whether to use TLS for connections. If not provided, preserves the profile TLS policy. True preserves verified profile TLS; without TLS credentials it selects anonymous TLS. False explicitly disables TLS.</param>
 /// <param name="ClientId">Optional client identifier for logging and debugging.</param>
 /// <param name="Profile">Fluvio profile name to load from ~/.fluvio/config. If not provided, uses the current_profile from config.</param>
 /// <param name="ConnectionTimeout">Maximum time to wait for connection establishment. Defaults to 30 seconds.</param>
@@ -94,13 +94,13 @@ public record FluvioClientOptions(
 
     /// <summary>
     /// Gets the SPU (Streaming Processing Unit) endpoint for Producer/Consumer operations.
-    /// Will be resolved from config if not specified. Default: localhost:9010
+    /// Used only as a fallback when ScEndpoint is not specified. SPU addresses are discovered by the native client.
     /// </summary>
     public string? SpuEndpoint { get; init; } = SpuEndpoint;
 
     /// <summary>
     /// Gets the SC (Stream Controller) endpoint for Admin operations.
-    /// Will be resolved from config if not specified. Default: localhost:9003
+    /// Loaded from the selected or current Fluvio profile when no explicit endpoint is provided.
     /// </summary>
     public string? ScEndpoint { get; init; } = ScEndpoint;
 

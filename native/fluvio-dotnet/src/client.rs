@@ -1,6 +1,6 @@
 // native/fluvio-dotnet/src/client.rs
 use crate::tcb::{complete_error, complete_string_success, complete_success, Tcb};
-use fluvio::config::TlsPolicy;
+use fluvio::config::{ConfigFile, TlsPolicy};
 use fluvio::{Fluvio, FluvioConfig};
 use serde::Deserialize;
 use std::os::raw::c_void;
@@ -12,9 +12,11 @@ use std::time::Instant;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ConnectConfig {
-    endpoint: String,
+    endpoint: Option<String>,
+    profile: Option<String>,
+    client_id: Option<String>,
     #[serde(default)]
-    use_tls: bool,
+    use_tls: Option<bool>,
 }
 
 #[no_mangle]
@@ -24,12 +26,28 @@ pub extern "C" fn ffi_client_connect(config_json: *const u8, config_json_len: us
     crate::runtime::runtime().spawn(async move {
         let result: anyhow::Result<Fluvio> = async {
             let connect_config: ConnectConfig = serde_json::from_str(&json)?;
-            let tls = if connect_config.use_tls {
-                TlsPolicy::Anonymous
+            let mut config = if let Some(profile) = &connect_config.profile {
+                ConfigFile::load(None)?
+                    .config()
+                    .cluster_with_profile(profile)
+                    .cloned()
+                    .ok_or_else(|| anyhow::anyhow!("Fluvio profile '{profile}' not found"))?
+            } else if let Some(endpoint) = &connect_config.endpoint {
+                FluvioConfig::new(endpoint)
             } else {
-                TlsPolicy::Disabled
+                ConfigFile::load(None)?.config().current_cluster()?.clone()
             };
-            let config = FluvioConfig::new(connect_config.endpoint).with_tls(tls);
+            if let Some(endpoint) = connect_config.endpoint {
+                config.endpoint = endpoint;
+            }
+            match connect_config.use_tls {
+                Some(false) => config.tls = TlsPolicy::Disabled,
+                Some(true) if matches!(config.tls, TlsPolicy::Disabled) => {
+                    config.tls = TlsPolicy::Anonymous;
+                }
+                _ => {}
+            }
+            config.client_id = connect_config.client_id;
             let client = Fluvio::connect_with_config(&config).await?;
             Ok(client)
         }
