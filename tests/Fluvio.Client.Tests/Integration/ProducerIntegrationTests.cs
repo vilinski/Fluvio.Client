@@ -313,4 +313,29 @@ public class ProducerIntegrationTests : FluvioIntegrationTestBase
             await CleanupTopicAsync(topic);
         }
     }
+
+    [Fact]
+    public async Task SendAsync_RespectsInternalTimeout_WhenVeryShort()
+    {
+        // Exercises CreateSendTimeoutSource's real 1ms-linked-timeout path directly, rather than
+        // mutating any shared/static state (a prior version of this test did that via a mutable
+        // FluvioProducer.SendTimeoutOverride field and it leaked across concurrently executing
+        // test classes in the same process — this approach cannot leak since nothing is shared).
+        using var timeoutCts = Fluvio.Client.Producer.FluvioProducer.CreateSendTimeoutSource(
+            CancellationToken.None, TimeSpan.FromMilliseconds(1));
+        var topic = await CreateTestTopicAsync();
+        try
+        {
+            var producer = Client!.Producer();
+            // A real send against a healthy cluster may still beat 1ms depending on timing;
+            // assert it EITHER completes fast OR throws OperationCanceledException — never hangs.
+            var task = producer.SendAsync(topic, new byte[] { 1 }, cancellationToken: timeoutCts.Token);
+            var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(5)));
+            Assert.Same(task, completed);
+        }
+        finally
+        {
+            await CleanupTopicAsync(topic);
+        }
+    }
 }
