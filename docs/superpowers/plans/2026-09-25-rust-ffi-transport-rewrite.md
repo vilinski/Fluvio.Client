@@ -1523,7 +1523,7 @@ git commit -m "feat: replace consumer streaming with pull-based FFI stream"
 - Produces (C#): `Native.Admin*` entry points; `FluvioAdmin` methods unchanged in signature, backed by JSON deserialization of the string payloads into the existing `Fluvio.Client.Abstractions` DTOs (`TopicMetadata`, `SpuMetadata`, `PartitionDetail`, `SmartModuleMetadata`).
 - Consumed by: none downstream (leaf task).
 
-- [ ] **Step 1: Write `admin.rs`**
+- [x] **Step 1: Write `admin.rs`**
 
 ```rust
 // native/fluvio-dotnet/src/admin.rs
@@ -1641,7 +1641,7 @@ pub extern "C" fn ffi_admin_get_topic(client: *mut c_void, name: *const u8, name
 // SpuMetadata, PartitionDetail, and SmartModuleMetadata's JSON shape exactly (property names below).
 ```
 
-- [ ] **Step 2: Implement the remaining eight admin functions**
+- [x] **Step 2: Implement the remaining eight admin functions**
 
 Following the pattern established in Step 1, implement:
 
@@ -1678,12 +1678,12 @@ Following the pattern established in Step 1, implement:
 
 Write these eight functions in full in `admin.rs` (each ~15-20 lines, mirroring `ffi_admin_list_topics`/`ffi_admin_create_topic`'s spawn/admin_for/match structure exactly). Add `pub mod admin;` to `lib.rs`.
 
-- [ ] **Step 3: Build and reconcile against the real `fluvio-controlplane-metadata` API**
+- [x] **Step 3: Build and reconcile against the real `fluvio-controlplane-metadata` API**
 
 Run: `cd native/fluvio-dotnet && cargo build`
 Expected: builds; `SpuSpec`/`PartitionSpec`/`SmartModuleSpec` field/method names are the most likely mismatch points — check `cargo doc --open -p fluvio-controlplane-metadata` and adjust field accessors in `admin.rs` to match before proceeding. If `TopicSpec::new_computed` doesn't exist under that exact name in 0.50.1, use whichever constructor the crate exposes for a computed (non-assigned) replica spec.
 
-- [ ] **Step 4: Add all admin P/Invoke declarations to `Native.cs`**
+- [x] **Step 4: Add all admin P/Invoke declarations to `Native.cs`**
 
 ```csharp
 // append inside Native class — one LibraryImport per admin.rs function from Steps 1-2
@@ -1713,7 +1713,7 @@ internal static unsafe partial void AdminCreateSmartModule(nint client, byte* na
 internal static unsafe partial void AdminDeleteSmartModule(nint client, byte* name, nuint nameLen, Tcb tcb);
 ```
 
-- [ ] **Step 5: Rewrite `FluvioAdmin.cs`**
+- [x] **Step 5: Rewrite `FluvioAdmin.cs`**
 
 Replace every method's body with the pattern: build UTF-8 byte buffers for string args, `fixed`-pin them, call the matching `Native.Admin*` via `Interop.Callbacks.CallAsync`, then either ignore a null success payload (mutations) or `System.Text.Json.JsonSerializer.Deserialize<T>(Interop.Native.ReadAndFreeString(ptr))` into the existing `TopicMetadata`/`SpuMetadata`/`PartitionDetail`/`SmartModuleMetadata` records for queries. Example for `CreateTopicAsync`:
 
@@ -1746,12 +1746,12 @@ public async Task<IReadOnlyList<TopicMetadata>> ListTopicsAsync(CancellationToke
 
 Apply the same two shapes (mutation vs. list/get) to every remaining method. Delete `src/Fluvio.Client/Admin/TopicSpecModels.cs` and remove its `using`s from `FluvioAdmin.cs`.
 
-- [ ] **Step 6: Run admin integration tests**
+- [x] **Step 6: Run admin integration tests**
 
 Run: `dotnet build Fluvio.Client.sln` then, against a running cluster, `dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~AdminIntegrationTests|FullyQualifiedName~AdminBasicTest"`
 Expected: topic/SPU/partition/SmartModule CRUD tests pass against the FFI-backed admin.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add native/fluvio-dotnet src/Fluvio.Client/Interop/Native.cs src/Fluvio.Client/Admin
