@@ -16,6 +16,7 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <WarningLevel>9</WarningLevel>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
     <!-- AOT/Trimming Support -->
     <IsAotCompatible>true</IsAotCompatible>

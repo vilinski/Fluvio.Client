@@ -3,7 +3,7 @@ namespace Fluvio.Client;
 /// <summary>
 /// Exception thrown by Fluvio client operations
 /// </summary>
-public class FluvioException : Exception
+public partial class FluvioException : Exception
 {
     /// <summary>
     /// Initializes a new instance of the <see cref="FluvioException"/> class with a specified error message.
@@ -50,5 +50,47 @@ public class IncompatiblePlatformVersionException : FluvioException
     {
         MinimumVersion = minimumVersion;
         ClusterVersion = clusterVersion;
+    }
+}
+
+/// <summary>
+/// Exception thrown when the native FFI layer reports a connection-related failure.
+/// </summary>
+public class FluvioConnectionException(string message) : FluvioException(message);
+
+/// <summary>
+/// Exception thrown when the native FFI layer reports that a topic was not found.
+/// </summary>
+public class TopicNotFoundException(string message) : FluvioException(message);
+
+/// <summary>
+/// Exception thrown when the native FFI layer reports that a topic already exists.
+/// </summary>
+public class TopicAlreadyExistsException(string message) : FluvioException(message);
+
+public partial class FluvioException
+{
+    internal static class Codes
+    {
+        internal const int Generic = 1;
+        internal const int Connection = 2;
+        internal const int TopicNotFound = 3;
+        internal const int TopicAlreadyExists = 4;
+        internal const int Cancelled = 5;
+        internal const int InvalidArgument = 6;
+        internal const int Unauthorized = 7;
+    }
+
+    internal static Exception FromCode(int code, string? message)
+    {
+        var msg = message ?? "Fluvio operation failed";
+        return code switch
+        {
+            Codes.Connection => new FluvioConnectionException(msg),
+            Codes.TopicNotFound => new TopicNotFoundException(msg),
+            Codes.TopicAlreadyExists => new TopicAlreadyExistsException(msg),
+            Codes.Cancelled => new OperationCanceledException(msg),
+            _ => new FluvioException(msg),
+        };
     }
 }
