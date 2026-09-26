@@ -286,7 +286,7 @@ git commit -m "fix: add panic boundary so a native task panic faults the C# Task
 - Produces (C#): `CancellationBridge.Register(nint nativeCancelHandlePtr, CancellationToken ct) -> IDisposable` (registers `ct.Register` to call `ffi_cancel_trigger`, returns a disposable that also frees the handle); every call site does: `var (cancelPtr, registration) = CancellationBridge.Create(ct); using (registration) { ... invoke native with cancelPtr ... }`.
 - Consumed by: this is the shared primitive Task 6's producer-timeout fix and Task 9's `FetchBatchAsync_EmptyTopic_BlocksUntilTimeout` fix both build on.
 
-- [ ] **Step 1: Write `cancel.rs` with a unit test**
+- [x] **Step 1: Write `cancel.rs` with a unit test**
 
 ```rust
 // native/fluvio-dotnet/src/cancel.rs
@@ -374,12 +374,12 @@ mod tests {
 
 Add `pub mod cancel;` to `lib.rs`.
 
-- [ ] **Step 2: Run the new tests**
+- [x] **Step 2: Run the new tests**
 
 Run: `cd native/fluvio-dotnet && cargo test cancel::`
 Expected: 3 passed.
 
-- [ ] **Step 3: Apply `cancel`/`race` to `ffi_consumer_fetch_batch` first (it has the concrete failing integration test)**
+- [x] **Step 3: Apply `cancel`/`race` to `ffi_consumer_fetch_batch` first (it has the concrete failing integration test)**
 
 ```rust
 // native/fluvio-dotnet/src/consumer.rs — modify ffi_consumer_fetch_batch's signature and body
@@ -426,7 +426,7 @@ pub extern "C" fn ffi_consumer_fetch_batch(
 
 Note: removing the old 50ms-per-record internal timeout changes `FetchBatchAsync`'s default (no-`CancellationToken`) behavior from "returns quickly with whatever's available" to "waits indefinitely for `max_bytes` worth of data". Re-check `ConsumerIntegrationTests.cs` for any test relying on the old quick-return-when-empty behavior WITHOUT passing a cancellation token — if one exists, that test must now pass an explicit short-timeout `CancellationToken` instead (this is the "resolve the contract" issue the handoff note flagged). Fix the test, don't reintroduce an internal timeout that fights explicit cancellation.
 
-- [ ] **Step 4: Wire the C# side for `FetchBatchAsync`**
+- [x] **Step 4: Wire the C# side for `FetchBatchAsync`**
 
 ```csharp
 // src/Fluvio.Client/Interop/CancellationBridge.cs
@@ -489,12 +489,12 @@ public async Task<IReadOnlyList<ConsumeRecord>> FetchBatchAsync(string topic, in
 }
 ```
 
-- [ ] **Step 5: Run the previously-failing test**
+- [x] **Step 5: Run the previously-failing test**
 
 Run: `FLUVIO_TEST_PROFILE=local dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~FetchBatchAsync_EmptyTopic_BlocksUntilTimeout"`
 Expected: PASS — the 2-second `CancellationTokenSource` now genuinely cancels the native fetch.
 
-- [ ] **Step 6: Apply the same `cancel`/`Tcb` pattern to every remaining non-streaming entry point**
+- [x] **Step 6: Apply the same `cancel`/`Tcb` pattern to every remaining non-streaming entry point**
 
 Apply identically to: `ffi_client_connect`, `ffi_client_health_check`, `ffi_producer_new`, `ffi_producer_send`, `ffi_producer_flush`, `ffi_consumer_fetch_last_offset`, `ffi_consumer_commit_offset`, and all 12 `ffi_admin_*` functions. Each gains a `cancel: *mut c_void` param before `tcb`, wraps its body in `crate::cancel::race(cancel, ...)`, and completes with `codes::CANCELLED` on the cancelled branch. Update every corresponding `Native.cs` P/Invoke declaration and every C# call site in `FluvioClient.cs`, `FluvioProducer.cs`, `FluvioConsumer.cs`, `FluvioAdmin.cs` to go through `CancellationBridge.Create`.
 
@@ -505,7 +505,7 @@ cd native/fluvio-dotnet && cargo build   # after each .rs file
 dotnet build Fluvio.Client.sln --configuration Release   # after each .cs file
 ```
 
-- [ ] **Step 7: Add cancellation regression tests for producer and admin**
+- [x] **Step 7: Add cancellation regression tests for producer and admin**
 
 ```csharp
 // tests/Fluvio.Client.Tests/Integration/ProducerIntegrationTests.cs — add
@@ -533,7 +533,7 @@ public async Task ListTopicsAsync_CancelledBeforeCompletion_ThrowsOperationCance
 }
 ```
 
-- [ ] **Step 8: Full regression run against both clusters**
+- [x] **Step 8: Full regression run against both clusters**
 
 ```bash
 cd native/fluvio-dotnet && cargo test && cd -
@@ -543,12 +543,33 @@ FLUVIO_TEST_PROFILE=hetzner-tls dotnet test tests/Fluvio.Client.Tests --filter "
 ```
 Expected: cancellation-related tests pass on both; note (don't fix yet — later tasks own these) any remaining failures from headers/partitioner/offset issues.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add native/fluvio-dotnet/src src/Fluvio.Client/Interop src/Fluvio.Client/FluvioClient.cs src/Fluvio.Client/Producer/FluvioProducer.cs src/Fluvio.Client/Consumer/FluvioConsumer.cs src/Fluvio.Client/Admin/FluvioAdmin.cs tests/Fluvio.Client.Tests/Integration/ProducerIntegrationTests.cs tests/Fluvio.Client.Tests/Integration/AdminIntegrationTests.cs
 git commit -m "fix: wire CancellationToken through every FFI call, not just streaming"
 ```
+
+**Verification notes (orchestrator, post-execution):** the executing session reported "completed" without
+committing (stuck in a background-wait loop); the orchestrator picked up verification directly. Found and
+fixed one additional bug while verifying: `ffi_producer_send`'s `value` parameter (native/fluvio-dotnet/src/producer.rs)
+was missing the same null-pointer guard `key` already had — a zero-length `ReadOnlyMemory<byte>` value
+pins to a null pointer in C#, and `slice::from_raw_parts` on a null pointer is UB that **aborts the whole
+process** (not a catchable panic, bypasses Task 1's `spawn_guarded` entirely since aborts don't unwind).
+Fixed with the same `if value.is_null() { Vec::new() } else { ... }` pattern as `key`. Verified against
+both `local` (reset via `fluvio cluster start` after an unrelated cluster-health issue — a stale local
+cluster reported "invalid partition size", unrelated to this task) and `hetzner-tls`: 13 native tests, 73
+unit tests, 23 targeted integration tests (connection/admin/consumer/cancellation) pass on both clusters.
+Also discovered: running the full `ProducerIntegrationTests`/`BatchFlushIntegrationTests` suites with
+default xUnit parallelization against the single-node `local` cluster causes a 60s timeout on an unrelated
+concurrent `CreateTopicAsync` call — confirmed to be test-parallelism resource contention, not a Task 2
+regression (passes when `-- xunit.parallelizeTestCollections=false` is set). Also discovered (unrelated to
+this task, noted for the backlog, not fixed here): `ProducerOptions.BatchSize`/`LingerTime` don't appear to
+be wired to any real batching behavior in the FFI producer — `Producer_WithLingerTime_FlushesAfterDelay`,
+`Producer_ZeroLingerTime_DisablesAutoFlush`, `Producer_WithSmallBatchSize_FlushesAutomatically`, and
+`Producer_Dispose_FlushesBufferedRecords` all fail on assertions about batch/linger timing. This is a
+gap in the original Task 3 scope of the first plan, not something Task 2 touched — needs its own task in
+a future plan revision.
 
 ---
 
