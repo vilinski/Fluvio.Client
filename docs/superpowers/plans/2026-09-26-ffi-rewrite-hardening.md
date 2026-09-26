@@ -121,7 +121,7 @@ Leave `.github/workflows/integration-tests.yml`, `docs/integration-testing.md`, 
 - Produces: `pub fn spawn_guarded<F>(tcb: Tcb, fut: F) where F: std::future::Future<Output = ()> + Send + 'static` — every call site in `client.rs`/`producer.rs`/`consumer.rs`/`admin.rs` replaces `crate::runtime::runtime().spawn(async move { <body> })` with `crate::tcb::spawn_guarded(tcb, async move { <body> })`, where `<body>` no longer takes `tcb` as a captured variable for completion (it still uses it to call `complete_success`/`complete_error` itself on the happy path; `spawn_guarded` only catches the panic case).
 - Consumed by: nothing further changes at call sites beyond the wrap — this task touches every `.rs` file but only mechanically.
 
-- [ ] **Step 1: Write the failing native test**
+- [x] **Step 1: Write the failing native test**
 
 ```rust
 // native/fluvio-dotnet/src/tcb.rs, in #[cfg(test)] mod tests
@@ -158,12 +158,12 @@ async fn spawn_guarded_completes_failure_when_future_panics() {
 }
 ```
 
-- [ ] **Step 2: Run it to confirm it fails (function doesn't exist yet)**
+- [x] **Step 2: Run it to confirm it fails (function doesn't exist yet)**
 
 Run: `cd native/fluvio-dotnet && cargo test spawn_guarded_completes_failure_when_future_panics`
 Expected: compile error — `spawn_guarded` not found.
 
-- [ ] **Step 3: Implement `spawn_guarded`**
+- [x] **Step 3: Implement `spawn_guarded`**
 
 ```rust
 // native/fluvio-dotnet/src/tcb.rs
@@ -195,12 +195,12 @@ where
 
 Add `futures = { version = "0.3", features = ["std"] }`'s `FutureExt`/`catch_unwind` — already a dependency; `catch_unwind` requires `std` feature which is default, no `Cargo.toml` change needed. Confirm with `cargo build`.
 
-- [ ] **Step 4: Run the test to confirm it passes**
+- [x] **Step 4: Run the test to confirm it passes**
 
 Run: `cd native/fluvio-dotnet && cargo test spawn_guarded_completes_failure_when_future_panics`
 Expected: PASS.
 
-- [ ] **Step 5: Replace every `runtime().spawn(async move { ... })` with `spawn_guarded`**
+- [x] **Step 5: Replace every `runtime().spawn(async move { ... })` with `spawn_guarded`**
 
 In each of `client.rs`, `producer.rs`, `consumer.rs`, `admin.rs`: change
 ```rust
@@ -217,7 +217,7 @@ grep -rn "runtime::runtime().spawn(async move" native/fluvio-dotnet/src/
 ```
 Expected: no output (every spawn site now goes through `spawn_guarded`).
 
-- [ ] **Step 6: Add a C#-visible regression test proving a real panic doesn't hang**
+- [x] **Step 6: Add a C#-visible regression test proving a real panic doesn't hang**
 
 This requires a way to deliberately trigger a native panic from C# for testing. Add a debug-only FFI function:
 
@@ -257,12 +257,12 @@ Adjust `Tcb`/`Callbacks` visibility (`internal` → confirm `InternalsVisibleTo 
 Run: `dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~PanicBoundaryTests"`
 Expected: PASS, completing in well under 5 seconds (proving no hang).
 
-- [ ] **Step 7: Full regression run**
+- [x] **Step 7: Full regression run**
 
 Run: `cd native/fluvio-dotnet && cargo test && cd - && dotnet test Fluvio.Client.sln --filter "FullyQualifiedName!~Integration"`
 Expected: all native + unit tests pass (73 including the new panic test).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add native/fluvio-dotnet/src tests/Fluvio.Client.Tests/Interop/PanicBoundaryTests.cs
