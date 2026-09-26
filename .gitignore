@@ -36,6 +36,9 @@ bld/
 *.snupkg
 **/packages/*
 
+# Native library packaging output (populated by CopyNativeToRuntimesFolder at pack time)
+src/Fluvio.Client/runtimes/
+
 # JetBrains Rider
 .idea/
 *.sln.iml

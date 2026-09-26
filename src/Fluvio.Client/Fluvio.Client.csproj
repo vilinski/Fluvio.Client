@@ -36,4 +36,48 @@
     <InternalsVisibleTo Include="Fluvio.Client.Tests" />
   </ItemGroup>
 
+  <Target Name="BuildNativeDebug" BeforeTargets="Build" Condition="'$(SkipNativeBuild)' != 'true'">
+    <Exec Command="cargo build" WorkingDirectory="$(MSBuildThisFileDirectory)../../native/fluvio-dotnet" />
+  </Target>
+
+  <PropertyGroup>
+    <NativeCrateDir>$(MSBuildThisFileDirectory)../../native/fluvio-dotnet</NativeCrateDir>
+  </PropertyGroup>
+
+  <!--
+    BeforeTargets="Pack" (as the plan literally specifies) is too late on this SDK: GenerateNuspec
+    (a DependsOnTargets of Pack, so it runs before anything hooked to BeforeTargets="Pack") is
+    where the actual .nupkg gets zipped, and IncludeNativeInPackage's wildcard glob is evaluated
+    even earlier, during _GetPackageFiles (one of GenerateNuspec's own DependsOnTargets). So the
+    native build/copy must run before _GetPackageFiles, not merely before Pack or GenerateNuspec,
+    otherwise the glob sees an empty/missing runtimes/ folder and silently packs nothing.
+  -->
+  <Target Name="BuildNativeForRid" BeforeTargets="_GetPackageFiles" Condition="'$(RuntimeIdentifier)' != ''">
+    <PropertyGroup>
+      <RustTarget Condition="'$(RuntimeIdentifier)' == 'linux-x64'">x86_64-unknown-linux-gnu</RustTarget>
+      <RustTarget Condition="'$(RuntimeIdentifier)' == 'osx-arm64'">aarch64-apple-darwin</RustTarget>
+      <RustTarget Condition="'$(RuntimeIdentifier)' == 'osx-x64'">x86_64-apple-darwin</RustTarget>
+      <RustTarget Condition="'$(RuntimeIdentifier)' == 'win-x64'">x86_64-pc-windows-msvc</RustTarget>
+    </PropertyGroup>
+    <Exec Command="cargo build --release --target $(RustTarget)" WorkingDirectory="$(NativeCrateDir)" />
+  </Target>
+
+  <Target Name="CopyNativeToRuntimesFolder" AfterTargets="BuildNativeForRid" Condition="'$(RuntimeIdentifier)' != ''">
+    <PropertyGroup>
+      <NativeLibFileName Condition="'$(RuntimeIdentifier)' == 'win-x64'">fluvio_dotnet.dll</NativeLibFileName>
+      <NativeLibFileName Condition="$(RuntimeIdentifier.StartsWith('osx'))">libfluvio_dotnet.dylib</NativeLibFileName>
+      <NativeLibFileName Condition="'$(RuntimeIdentifier)' == 'linux-x64'">libfluvio_dotnet.so</NativeLibFileName>
+    </PropertyGroup>
+    <ItemGroup>
+      <NativeLibOutput Include="$(NativeCrateDir)/target/$(RustTarget)/release/$(NativeLibFileName)" />
+    </ItemGroup>
+    <Copy SourceFiles="@(NativeLibOutput)" DestinationFolder="$(MSBuildThisFileDirectory)runtimes/$(RuntimeIdentifier)/native/" />
+  </Target>
+
+  <Target Name="IncludeNativeInPackage" BeforeTargets="_GetPackageFiles" Condition="'$(RuntimeIdentifier)' != ''">
+    <ItemGroup>
+      <None Include="runtimes/$(RuntimeIdentifier)/native/*" Pack="true" PackagePath="runtimes/$(RuntimeIdentifier)/native/" />
+    </ItemGroup>
+  </Target>
+
 </Project>
