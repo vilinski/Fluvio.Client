@@ -1909,7 +1909,7 @@ git commit -m "feat: add native library build/pack MSBuild targets"
 - Consumes: Task 8's MSBuild targets, Task 1's `native/fluvio-dotnet` crate.
 - Produces: green CI on a fresh clone/PR.
 
-- [ ] **Step 1: Add a Rust toolchain setup step and native build step to `build.yml`**
+- [x] **Step 1: Add a Rust toolchain setup step and native build step to `build.yml`**
 
 ```yaml
 # insert into the `steps:` list of the `build` job in .github/workflows/build.yml, before "Restore dependencies"
@@ -1930,17 +1930,17 @@ git commit -m "feat: add native library build/pack MSBuild targets"
   run: cargo test
 ```
 
-- [ ] **Step 2: Confirm `dotnet build`/`dotnet test` steps still work unchanged**
+- [x] **Step 2: Confirm `dotnet build`/`dotnet test` steps still work unchanged**
 
 The existing `Restore dependencies`/`Build`/`Test (Unit Tests Only)` steps in `build.yml` need no changes — `BuildNativeDebug` (Task 8) runs automatically as part of `dotnet build`, and CI already ran `cargo build` explicitly in Step 1 so the debug artifact is warm in cache.
 Run (locally, simulating CI order): `cd native/fluvio-dotnet && cargo build && cargo test && cd ../.. && dotnet restore Fluvio.Client.sln && dotnet build --configuration Release --no-restore Fluvio.Client.sln /p:TreatWarningsAsErrors=true && dotnet test --configuration Release --no-build --filter "FullyQualifiedName!~Integration" Fluvio.Client.sln`
 Expected: all steps succeed in this order, matching what CI will run.
 
-- [ ] **Step 3: Add native build step to `integration-tests.yml`**
+- [x] **Step 3: Add native build step to `integration-tests.yml`**
 
 Read the current contents of `.github/workflows/integration-tests.yml` first (`cat .github/workflows/integration-tests.yml`) and insert the same `Setup Rust` / `Cache Rust build` / `Build native library` steps used in Step 1, positioned before whatever step first runs `dotnet build`/`dotnet test` against the integration test project, so the native library is present before the Fluvio cluster fixture starts.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add .github/workflows/build.yml .github/workflows/integration-tests.yml
