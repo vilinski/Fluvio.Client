@@ -66,7 +66,7 @@
 - Produces: `ffi_client_connect`'s JSON now accepts `{ endpoint?, profile?, clientId?, useTls? }` and resolves a real named/current Fluvio profile (preserving TLS cert config) when `profile` is given or all fields are omitted; `FluvioNativeConfig.ToJson(FluvioClientOptions)` (replacing the old 2-arg `ToJson(string, bool)`); `IntegrationTestConfig` exposing however it resolves `FLUVIO_TEST_PROFILE` (read the file to confirm its exact public surface before writing Task 11, which depends on it).
 - Consumed by: every later task's integration tests connect via whatever `FluvioIntegrationTestBase.InitializeAsync` now does — read it to confirm before writing new tests.
 
-- [ ] **Step 1: Read every uncommitted diff and the new files in full**
+- [x] **Step 1: Read every uncommitted diff and the new files in full**
 
 ```bash
 git diff native/fluvio-dotnet/src/client.rs src/Fluvio.Client/FluvioClient.cs src/Fluvio.Client.Abstractions/IFluvioClient.cs tests/Fluvio.Client.Tests/Integration/AdminBasicTest.cs tests/Fluvio.Client.Tests/Integration/ConnectionIntegrationTests.cs tests/Fluvio.Client.Tests/Integration/FluvioIntegrationTestBase.cs
@@ -75,7 +75,7 @@ cat tests/Fluvio.Client.Tests/Integration/IntegrationTestConfig.cs
 
 Confirm: (a) `ffi_client_connect` fails closed on a named profile that doesn't exist (per the handoff note) rather than silently falling back to another cluster; (b) `IntegrationTestConfig` defaults to `localhost:9003`/no TLS when `FLUVIO_TEST_PROFILE` is unset, and otherwise loads that named native profile; (c) nothing in these diffs weakens or skips an existing test (per this plan's Global Constraints).
 
-- [ ] **Step 2: Build and run the native + managed unit suite**
+- [x] **Step 2: Build and run the native + managed unit suite**
 
 Run: `cd native/fluvio-dotnet && cargo build && cargo test`
 Expected: 9 passed (same as before — these diffs don't touch runtime/tcb/ffi_types/error).
@@ -83,7 +83,7 @@ Expected: 9 passed (same as before — these diffs don't touch runtime/tcb/ffi_t
 Run: `dotnet build Fluvio.Client.sln --configuration Release /p:TreatWarningsAsErrors=true && dotnet test Fluvio.Client.sln --filter "FullyQualifiedName!~Integration"`
 Expected: 0 warnings, 0 errors, 72 passed.
 
-- [ ] **Step 3: Run the connection/admin integration tests against `local`**
+- [x] **Step 3: Run the connection/admin integration tests against `local`**
 
 ```bash
 fluvio profile switch local
@@ -91,14 +91,14 @@ FLUVIO_TEST_PROFILE=local dotnet test tests/Fluvio.Client.Tests --filter "FullyQ
 ```
 Expected: all pass (per the handoff note, these already passed under Codex).
 
-- [ ] **Step 4: Run the same tests against `hetzner-tls`**
+- [x] **Step 4: Run the same tests against `hetzner-tls`**
 
 ```bash
 FLUVIO_TEST_PROFILE=hetzner-tls dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~ConnectionIntegrationTests|FullyQualifiedName~AdminBasicTest" --configuration Release
 ```
 Expected: all pass, proving TLS + client-cert connect actually works end-to-end against the real Hetzner cluster.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add native/fluvio-dotnet/src/client.rs src/Fluvio.Client/FluvioClient.cs src/Fluvio.Client.Abstractions/IFluvioClient.cs tests/Fluvio.Client.Tests/Integration/AdminBasicTest.cs tests/Fluvio.Client.Tests/Integration/ConnectionIntegrationTests.cs tests/Fluvio.Client.Tests/Integration/FluvioIntegrationTestBase.cs tests/Fluvio.Client.Tests/Integration/IntegrationTestConfig.cs
