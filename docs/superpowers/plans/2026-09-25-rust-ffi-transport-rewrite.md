@@ -981,7 +981,7 @@ git commit -m "feat: replace producer wire protocol with FFI-backed send/flush"
 - Produces (C#): `Native.ConsumerFetchBatch/ConsumerFetchLastOffset/ConsumerCommitOffset`; updated `IFluvioConsumer.CommitOffsetAsync(string, string, int, long, CancellationToken)`.
 - Consumed by: Task 5 (streaming) shares the same `consumer.rs` module and `FluvioConsumer.cs` file.
 
-- [ ] **Step 1: Write the fetch/offset portion of `consumer.rs`**
+- [x] **Step 1: Write the fetch/offset portion of `consumer.rs`**
 
 ```rust
 // native/fluvio-dotnet/src/consumer.rs (fetch/offset portion; streaming appended in Task 5)
@@ -1104,19 +1104,19 @@ pub extern "C" fn ffi_consumer_commit_offset(
 
 Add `pub mod consumer;` to `lib.rs`.
 
-- [ ] **Step 2: Build and reconcile against the real `fluvio` 0.50.1 API**
+- [x] **Step 2: Build and reconcile against the real `fluvio` 0.50.1 API**
 
 Run: `cd native/fluvio-dotnet && cargo build`
 Expected: builds; the consumer-offsets API name/shape (`client.consumer_offsets()`, `fetch_offset`/`commit_offset`) is the part most likely to need adjustment — check `cargo doc --open -p fluvio` for the actual offset-management API in 0.50.1 and update this file to match before proceeding; the fetch-batch polling loop (short-timeout `stream.next()` loop) is a placeholder strategy for "fetch what's available up to max_bytes without blocking indefinitely" and may be replaced with a more direct batch-fetch call if `fluvio` exposes one.
 
-- [ ] **Step 3: Update `IFluvioConsumer.CommitOffsetAsync` signature**
+- [x] **Step 3: Update `IFluvioConsumer.CommitOffsetAsync` signature**
 
 ```csharp
 // src/Fluvio.Client.Abstractions/IFluvioClient.cs — replace the existing CommitOffsetAsync signature
 Task CommitOffsetAsync(string consumerId, string topic, int partition, long offset, CancellationToken cancellationToken = default);
 ```
 
-- [ ] **Step 4: Add C# P/Invoke declarations**
+- [x] **Step 4: Add C# P/Invoke declarations**
 
 ```csharp
 // append inside Native class
@@ -1133,7 +1133,7 @@ internal static unsafe partial void ConsumerFetchLastOffset(nint client, byte* c
 internal static unsafe partial void ConsumerCommitOffset(nint client, byte* consumerId, nuint consumerIdLen, byte* topic, nuint topicLen, uint partition, long offset, Tcb tcb);
 ```
 
-- [ ] **Step 5: Rewrite `FluvioConsumer.cs`'s `FetchBatchAsync`/`FetchLastOffsetAsync`/`CommitOffsetAsync`**
+- [x] **Step 5: Rewrite `FluvioConsumer.cs`'s `FetchBatchAsync`/`FetchLastOffsetAsync`/`CommitOffsetAsync`**
 
 ```csharp
 public async Task<IReadOnlyList<ConsumeRecord>> FetchBatchAsync(string topic, int partition = 0, long offset = 0, int maxBytes = 1024 * 1024, CancellationToken cancellationToken = default)
@@ -1190,17 +1190,17 @@ public async Task CommitOffsetAsync(string consumerId, string topic, int partiti
 
 `Interop.NativeBuffer.ReadRecordArrayAndFree(nint arrayPtr, int partition)` (implemented in Task 5 alongside the single-record read path, since both share the `FFIRecord*` layout) reads the `FFIRecordArray` header, materializes each `FFIRecord*` into a `ConsumeRecord`, frees the array via `Native.RecordArrayFree`, and returns the list.
 
-- [ ] **Step 6: Update any test call sites still passing `sessionId`**
+- [x] **Step 6: Update any test call sites still passing `sessionId`**
 
 Search: `grep -rn "CommitOffsetAsync" tests/ src/ examples/`
 Expected: update every call site to the new 4-positional-arg signature (drop the `sessionId` argument). `ConsumerIntegrationTests.cs` is the primary one to check.
 
-- [ ] **Step 7: Run consumer integration tests (fetch/offset subset)**
+- [x] **Step 7: Run consumer integration tests (fetch/offset subset)**
 
 Run: `dotnet build Fluvio.Client.sln` then, against a running cluster, `dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~ConsumerIntegrationTests"`
 Expected: fetch-batch and offset commit/fetch tests pass (streaming tests, if any exist in this file, are addressed in Task 5).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add native/fluvio-dotnet src/Fluvio.Client/Interop/Native.cs src/Fluvio.Client/Consumer/FluvioConsumer.cs src/Fluvio.Client.Abstractions/IFluvioClient.cs
