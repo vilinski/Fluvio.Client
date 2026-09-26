@@ -5,7 +5,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Polly" />
     <PackageReference Include="System.IO.Hashing" />
   </ItemGroup>
 

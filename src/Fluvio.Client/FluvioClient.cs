@@ -37,27 +37,19 @@ public sealed class FluvioClient : IFluvioClient
     }
 
     /// <summary>
-    /// Merge provided options with configuration from ~/.fluvio/config
+    /// Merge provided options with default endpoints. Profile-based config resolution
+    /// (<c>~/.fluvio/config</c>) is delegated to the native Rust client (see spec §7);
+    /// this only fills in defaults for values the caller didn't provide.
     /// </summary>
     private static FluvioClientOptions MergeWithConfig(FluvioClientOptions? provided)
     {
-        // If everything is provided, no need to load config
+        // If everything is provided, no need to apply defaults
         if (provided is { SpuEndpoint: not null, ScEndpoint: not null, UseTls: not null })
             return provided;
 
-        // Load config from ~/.fluvio/config
-        var cluster = Config.FluvioConfig.GetActiveCluster(provided?.Profile);
-
-        // Merge: provided options take precedence over config
-        var spuEndpoint = provided?.SpuEndpoint
-                          ?? cluster?.Endpoint
-                          ?? "localhost:9010";
-
-        var scEndpoint = provided?.ScEndpoint
-                        ?? (cluster?.Endpoint != null ? cluster.Endpoint.Replace(":9010", ":9003") : null)
-                        ?? "localhost:9003";
-
-        var useTls = (provided?.UseTls ?? cluster?.IsTlsEnabled) ?? false;
+        var spuEndpoint = provided?.SpuEndpoint ?? "localhost:9010";
+        var scEndpoint = provided?.ScEndpoint ?? "localhost:9003";
+        var useTls = provided?.UseTls ?? false;
 
         if (provided != null)
         {
