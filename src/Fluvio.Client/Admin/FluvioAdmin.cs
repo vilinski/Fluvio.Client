@@ -1,31 +1,30 @@
+using System.Text;
+using System.Text.Json;
 using Fluvio.Client.Abstractions;
-using Fluvio.Client.Network;
-using Fluvio.Client.Protocol;
+using Fluvio.Client.Interop;
 
 namespace Fluvio.Client.Admin;
 
 /// <summary>
-/// Fluvio admin implementation for topic management
+/// Fluvio admin implementation for topic management. Backed by the native Rust FFI layer
+/// (see <see cref="Interop"/>), which wraps the official <c>fluvio</c> Rust client's
+/// <c>FluvioAdmin</c>.
 /// </summary>
 internal sealed class FluvioAdmin : IFluvioAdmin
 {
-    private readonly FluvioConnection _connection;
-    private readonly string? _clientId;
+    private readonly RustResource _clientHandle;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="FluvioAdmin"/> class.
     /// </summary>
-    /// <param name="connection">The Fluvio connection.</param>
-    /// <param name="clientId">Optional client ID.</param>
-    public FluvioAdmin(FluvioConnection connection, string? clientId)
+    /// <param name="clientHandle">The native client handle admin operations are issued against.</param>
+    public FluvioAdmin(RustResource clientHandle)
     {
-        _connection = connection;
-        _clientId = clientId;
+        _clientHandle = clientHandle;
     }
 
     /// <summary>
     /// Creates a new topic in the Fluvio cluster.
-    /// Uses ObjectApiCreateRequest protocol to communicate with SC (Stream Controller).
     /// </summary>
     /// <param name="name">Topic name.</param>
     /// <param name="spec">Topic specification (optional, defaults to 1 partition and replication factor 1).</param>
@@ -34,76 +33,35 @@ internal sealed class FluvioAdmin : IFluvioAdmin
     public async Task CreateTopicAsync(string name, TopicSpec? spec = null, CancellationToken cancellationToken = default)
     {
         ValidateTopicName(name);
-
-        // Use default spec if not provided
         spec ??= new TopicSpec();
 
-        // Build ObjectApiCreateRequest according to fluvio-sc-schema
-        using var writer = new FluvioBinaryWriter();
+        var nameBytes = Encoding.UTF8.GetBytes(name);
+        var specJson = BuildTopicSpecJson(spec);
+        var specBytes = Encoding.UTF8.GetBytes(specJson);
 
-        // 1. Write type label (String)
-        writer.WriteString("Topic");
-
-        // 2. Build CreateRequest<TopicSpec> in a temp buffer
-        using var requestWriter = new FluvioBinaryWriter();
-
-        // CommonCreateRequest
-        requestWriter.WriteString(name);
-        requestWriter.WriteBool(false); // dry_run
-
-        // timeout: Option<u32> (min_version = 7, we use version 25)
-        requestWriter.WriteOption<uint>(null, requestWriter.WriteUInt32);
-
-        // TopicSpec - create a computed replica spec from the simple TopicSpec
-        var topicSpec = TopicSpecFull.CreateComputed(
-            partitions: spec.Partitions,
-            replicationFactor: spec.ReplicationFactor,
-            ignoreRackAssignment: spec.IgnoreRackAssignment
-        );
-
-        // Encode the full TopicSpec using the ADT
-        topicSpec.Encode(requestWriter);
-
-        var requestBytes = requestWriter.ToArray();
-
-        // 3. Write buffer length (u32)
-        writer.WriteUInt32((uint)requestBytes.Length);
-
-        // 4. Write buffer
-        writer._stream.Write(requestBytes);
-
-        var requestBody = writer.ToArray();
-
-        // Send request to SC with AdminCreate API key and COMMON_VERSION
-        // Use 10-second timeout for admin operations
-        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-
-        var responseBytes = await _connection.SendRequestAsync(
-            ApiKey.AdminCreate,
-            25, // COMMON_VERSION
-            _clientId,
-            requestBody,
-            linkedCts.Token);
-
-        // Parse Status response
-        using var reader = new FluvioBinaryReader(responseBytes);
-
-        // Status { name: String, error_code: ErrorCode (i16), error_message: Option<String> }
-        var responseName = reader.ReadString(); // topic name
-        var errorCode = (ErrorCode)reader.ReadInt16();
-        var errorMessage = reader.ReadOptionalString(); // Option<String>
-
-        if (errorCode != ErrorCode.None)
+        Task<nint> task;
+        unsafe
         {
-            throw new FluvioException($"Create topic '{responseName}' failed: {errorCode}" +
-                (errorMessage != null ? $" - {errorMessage}" : ""));
+            fixed (byte* np = nameBytes)
+            fixed (byte* sp = specBytes)
+            {
+                var nameAddr = (nint)np;
+                var specAddr = (nint)sp;
+                task = _clientHandle.RunAsyncWithIncrement(h =>
+                    Callbacks.CallAsync(tcb =>
+                    {
+                        unsafe
+                        {
+                            Native.AdminCreateTopic(h, (byte*)nameAddr, (nuint)nameBytes.Length, (byte*)specAddr, (nuint)specBytes.Length, tcb);
+                        }
+                    }));
+            }
         }
+        await task.ConfigureAwait(false);
     }
 
     /// <summary>
     /// Deletes a topic from the Fluvio cluster.
-    /// Uses ObjectApiDeleteRequest protocol to communicate with SC (Stream Controller).
     /// </summary>
     /// <param name="name">Topic name.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -111,156 +69,48 @@ internal sealed class FluvioAdmin : IFluvioAdmin
     public async Task DeleteTopicAsync(string name, CancellationToken cancellationToken = default)
     {
         ValidateTopicName(name);
-        // Build ObjectApiDeleteRequest according to fluvio-sc-schema
-        using var writer = new FluvioBinaryWriter();
+        var nameBytes = Encoding.UTF8.GetBytes(name);
 
-        // 1. Write type label (String)
-        writer.WriteString("Topic");
-
-        // 2. Build DeleteRequest<TopicSpec> in a temp buffer
-        using var requestWriter = new FluvioBinaryWriter();
-
-        // DeleteRequest { key: String, force: bool (min_version=13) }
-        requestWriter.WriteString(name); // key (topic name)
-        requestWriter.WriteBool(false);  // force (min_version = 13, always false for now)
-
-        var requestBytes = requestWriter.ToArray();
-
-        // 3. Write buffer length (u32)
-        writer.WriteUInt32((uint)requestBytes.Length);
-
-        // 4. Write buffer
-        writer._stream.Write(requestBytes);
-
-        var requestBody = writer.ToArray();
-
-        // Send request to SC with AdminDelete API key and COMMON_VERSION
-        // Use 10-second timeout for admin operations
-        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-
-        var responseBytes = await _connection.SendRequestAsync(
-            ApiKey.AdminDelete,
-            25, // COMMON_VERSION
-            _clientId,
-            requestBody,
-            linkedCts.Token);
-
-        // Parse Status response
-        using var reader = new FluvioBinaryReader(responseBytes);
-
-        // Status { name: String, error_code: ErrorCode (i16), error_message: Option<String> }
-        var topicName = reader.ReadString(); // topic name
-        var errorCode = (ErrorCode)reader.ReadInt16();
-        var errorMessage = reader.ReadOptionalString(); // Option<String>
-
-        if (errorCode != ErrorCode.None)
+        Task<nint> task;
+        unsafe
         {
-            throw new FluvioException($"Delete topic '{topicName}' failed: {errorCode}" +
-                (errorMessage != null ? $" - {errorMessage}" : ""));
+            fixed (byte* np = nameBytes)
+            {
+                var nameAddr = (nint)np;
+                task = _clientHandle.RunAsyncWithIncrement(h =>
+                    Callbacks.CallAsync(tcb =>
+                    {
+                        unsafe
+                        {
+                            Native.AdminDeleteTopic(h, (byte*)nameAddr, (nuint)nameBytes.Length, tcb);
+                        }
+                    }));
+            }
         }
+        await task.ConfigureAwait(false);
     }
 
     /// <summary>
     /// Lists all topics in the Fluvio cluster.
-    /// Uses ObjectApiListRequest protocol to communicate with SC (Stream Controller).
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>List of topic metadata.</returns>
     public async Task<IReadOnlyList<TopicMetadata>> ListTopicsAsync(CancellationToken cancellationToken = default)
     {
-        // Build ObjectApiListRequest according to fluvio-sc-schema
-        using var writer = new FluvioBinaryWriter();
-
-        // 1. Write type label (String)
-        writer.WriteString("Topic");
-
-        // 2. Build ListRequest<TopicSpec> in a temp buffer
-        using var requestWriter = new FluvioBinaryWriter();
-
-        // ListRequest { name_filters: ListFilters, summary: bool, system: bool }
-
-        // name_filters: Vec<ListFilter> - empty vec means list all
-        requestWriter.WriteInt32(0); // filters count = 0 (list all topics)
-
-        // summary: bool (min_version = 10)
-        requestWriter.WriteBool(false); // return full metadata, not summary
-
-        // system: bool (min_version = 13)
-        requestWriter.WriteBool(false); // don't filter for system topics only
-
-        var requestBytes = requestWriter.ToArray();
-
-        // 3. Write buffer length (u32)
-        writer.WriteUInt32((uint)requestBytes.Length);
-
-        // 4. Write buffer
-        writer._stream.Write(requestBytes);
-
-        var requestBody = writer.ToArray();
-
-        // Send request to SC with AdminList API key and COMMON_VERSION
-        // Use 10-second timeout for admin operations
-        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-
-        var responseBytes = await _connection.SendRequestAsync(
-            ApiKey.AdminList,
-            25, // COMMON_VERSION
-            _clientId,
-            requestBody,
-            linkedCts.Token);
-
-        // Parse ObjectApiListResponse
-        using var reader = new FluvioBinaryReader(responseBytes);
-
-        // Debug: Log response size
-
-        // 1. Read type label
-        var typeLabel = reader.ReadString();
-        if (typeLabel != "Topic")
+        var jsonPtr = await _clientHandle.RunAsyncWithIncrement(h =>
+            Callbacks.CallAsync(tcb => Native.AdminListTopics(h, tcb))).ConfigureAwait(false);
+        var json = Native.ReadAndFreeString(jsonPtr);
+        if (string.IsNullOrEmpty(json))
         {
-            throw new FluvioException($"Unexpected type label in ListTopics response: {typeLabel}");
+            return [];
         }
 
-        // 2. Read buffer length
-        var bufferLength = reader.ReadUInt32();
-
-        // 3. Read ListResponse<TopicSpec> { inner: Vec<Metadata<TopicSpec>> }
-        var topicCount = reader.ReadInt32();
-
+        using var document = JsonDocument.Parse(json);
         var topics = new List<TopicMetadata>();
-
-        for (var i = 0; i < topicCount; i++)
+        foreach (var element in document.RootElement.EnumerateArray())
         {
-            // Each Metadata<TopicSpec> contains:
-            // - name: String
-            // - spec: TopicSpec
-            // - status: TopicStatus
-
-            var topicName = reader.ReadString() ?? "";
-
-            // Decode TopicSpec using the ADT
-            var spec = TopicSpecFull.Decode(reader);
-
-            // Extract basic info from the spec
-            var partitions = spec.Replicas.GetPartitionCount();
-            var replicationFactor = spec.Replicas.GetReplicationFactor() ?? 1;
-
-            // Decode TopicStatus
-            var status = TopicStatusModel.Decode(reader);
-
-            var topic = new TopicMetadata(
-                Name: topicName,
-                Partitions: partitions,
-                ReplicationFactor: replicationFactor,
-                Status: status.Resolution.ToApiStatus(),
-                PartitionMetadata: new List<PartitionMetadata>() // Note: Partition metadata extraction deferred - replica_map provides basic info
-            );
-
-            topics.Add(topic);
+            topics.Add(ParseTopicMetadata(element));
         }
-
         return topics;
     }
 
@@ -272,42 +122,78 @@ internal sealed class FluvioAdmin : IFluvioAdmin
     /// <returns>Topic metadata or null if not found.</returns>
     public async Task<TopicMetadata?> GetTopicAsync(string name, CancellationToken cancellationToken = default)
     {
-        var allTopics = await ListTopicsAsync(cancellationToken);
-        return allTopics.FirstOrDefault(t => t.Name == name);
-    }
+        var nameBytes = Encoding.UTF8.GetBytes(name);
 
-    private TopicMetadata ReadTopicMetadata(FluvioBinaryReader reader)
-    {
-        var name = reader.ReadString() ?? "";
-        var partitionCount = reader.ReadInt32();
-        var replicationFactor = reader.ReadInt32();
-        var status = (TopicStatus)reader.ReadInt8();
-
-        var partitions = new List<PartitionMetadata>(partitionCount);
-        for (var i = 0; i < partitionCount; i++)
+        Task<nint> task;
+        unsafe
         {
-            var partitionId = reader.ReadInt32();
-            var leader = reader.ReadInt32();
-
-            var replicaCount = reader.ReadInt32();
-            var replicas = new List<int>(replicaCount);
-            for (var j = 0; j < replicaCount; j++)
+            fixed (byte* np = nameBytes)
             {
-                replicas.Add(reader.ReadInt32());
+                var nameAddr = (nint)np;
+                task = _clientHandle.RunAsyncWithIncrement(h =>
+                    Callbacks.CallAsync(tcb =>
+                    {
+                        unsafe
+                        {
+                            Native.AdminGetTopic(h, (byte*)nameAddr, (nuint)nameBytes.Length, tcb);
+                        }
+                    }));
             }
+        }
+        var jsonPtr = await task.ConfigureAwait(false);
 
-            var isrCount = reader.ReadInt32();
-            var isr = new List<int>(isrCount);
-            for (var j = 0; j < isrCount; j++)
-            {
-                isr.Add(reader.ReadInt32());
-            }
-
-            partitions.Add(new PartitionMetadata(partitionId, leader, replicas, isr));
+        var json = Native.ReadAndFreeString(jsonPtr);
+        if (string.IsNullOrEmpty(json))
+        {
+            return null;
         }
 
-        return new TopicMetadata(name, partitionCount, replicationFactor, status, partitions);
+        using var document = JsonDocument.Parse(json);
+        return ParseTopicMetadata(document.RootElement);
     }
+
+    /// <summary>
+    /// Parses the JSON shape produced by the native <c>ffi_admin_list_topics</c>/
+    /// <c>ffi_admin_get_topic</c> functions in <c>native/fluvio-dotnet/src/admin.rs</c>.
+    /// Built with <see cref="JsonDocument"/> rather than reflection-based
+    /// <see cref="JsonSerializer"/> so this stays trim/AOT compatible.
+    /// </summary>
+    private static TopicMetadata ParseTopicMetadata(JsonElement element) =>
+        new(
+            Name: element.GetProperty("name").GetString() ?? "",
+            Partitions: element.GetProperty("partitions").GetInt32(),
+            ReplicationFactor: element.GetProperty("replicationFactor").GetInt32(),
+            Status: ToApiStatus(element.GetProperty("status").GetString() ?? ""),
+            PartitionMetadata: []);
+
+    /// <summary>
+    /// Builds the topic-spec JSON consumed by the native <c>ffi_admin_create_topic</c>
+    /// function, which reads the <c>partitions</c>/<c>replicationFactor</c> fields.
+    /// </summary>
+    private static string BuildTopicSpecJson(TopicSpec spec)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("partitions", spec.Partitions);
+            writer.WriteNumber("replicationFactor", spec.ReplicationFactor);
+            writer.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    /// <summary>
+    /// Maps the native Rust side's <c>TopicResolution</c> debug-formatted variant name
+    /// (Init/Pending/InsufficientResources/InvalidConfig/Provisioned/Deleting) to the public
+    /// <see cref="TopicStatus"/> surface.
+    /// </summary>
+    private static TopicStatus ToApiStatus(string resolution) =>
+        resolution switch
+        {
+            "Provisioned" => TopicStatus.Provisioned,
+            _ => TopicStatus.Offline,
+        };
 
     /// <summary>
     /// Validates a topic name according to Fluvio rules.
@@ -353,11 +239,7 @@ internal sealed class FluvioAdmin : IFluvioAdmin
     }
 
     /// <summary>
-    /// Disposes the admin instance. (No-op, does not own connection.)
+    /// Disposes the admin instance. (No-op, does not own the client handle.)
     /// </summary>
-    public ValueTask DisposeAsync()
-    {
-        // Admin doesn't own the connection, so nothing to dispose
-        return ValueTask.CompletedTask;
-    }
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

@@ -9,7 +9,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 fluvio = { version = "0.50.1", features = ["admin"] }
-fluvio-controlplane-metadata = "0.50.1"
+fluvio-controlplane-metadata = { version = "0.50.1", features = ["smartmodule"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }

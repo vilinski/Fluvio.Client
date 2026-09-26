@@ -100,6 +100,42 @@ internal static partial class Native
     [LibraryImport(LibraryName, EntryPoint = "ffi_record_free")]
     internal static partial void RecordFree(nint ptr);
 
+    [LibraryImport(LibraryName, EntryPoint = "ffi_admin_create_topic")]
+    internal static unsafe partial void AdminCreateTopic(nint client, byte* name, nuint nameLen, byte* specJson, nuint specJsonLen, Tcb tcb);
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_admin_delete_topic")]
+    internal static unsafe partial void AdminDeleteTopic(nint client, byte* name, nuint nameLen, Tcb tcb);
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_admin_list_topics")]
+    internal static partial void AdminListTopics(nint client, Tcb tcb);
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_admin_get_topic")]
+    internal static unsafe partial void AdminGetTopic(nint client, byte* name, nuint nameLen, Tcb tcb);
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_admin_list_spus")]
+    internal static partial void AdminListSpus(nint client, Tcb tcb);
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_admin_get_spu")]
+    internal static partial void AdminGetSpu(nint client, int spuId, Tcb tcb);
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_admin_list_partitions")]
+    internal static unsafe partial void AdminListPartitions(nint client, byte* topicFilter, nuint topicFilterLen, Tcb tcb);
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_admin_get_partition")]
+    internal static unsafe partial void AdminGetPartition(nint client, byte* topic, nuint topicLen, uint partition, Tcb tcb);
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_admin_list_smartmodules")]
+    internal static partial void AdminListSmartModules(nint client, Tcb tcb);
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_admin_get_smartmodule")]
+    internal static unsafe partial void AdminGetSmartModule(nint client, byte* name, nuint nameLen, Tcb tcb);
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_admin_create_smartmodule")]
+    internal static unsafe partial void AdminCreateSmartModule(nint client, byte* name, nuint nameLen, byte* wasm, nuint wasmLen, Tcb tcb);
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_admin_delete_smartmodule")]
+    internal static unsafe partial void AdminDeleteSmartModule(nint client, byte* name, nuint nameLen, Tcb tcb);
+
     internal static unsafe string? ReadAndFreeString(nint ptr)
     {
         if (ptr == 0) return null;
