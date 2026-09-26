@@ -1225,7 +1225,7 @@ git commit -m "feat: replace consumer fetch/offset wire protocol with FFI"
 - Produces (C#): `NativeBuffer : SafeHandle` wrapping an `FFIRecord*` with zero-copy `ReadOnlyMemory<byte>` accessors; `Native.StreamNew/StreamNext/StreamClose/StreamDrop`; `FluvioConsumer.StreamAsync` as a custom `IAsyncEnumerable<ConsumeRecord>`.
 - Consumed by: none downstream (leaf task).
 
-- [ ] **Step 1: Append streaming to `consumer.rs`**
+- [x] **Step 1: Append streaming to `consumer.rs`**
 
 ```rust
 // append to native/fluvio-dotnet/src/consumer.rs
@@ -1322,7 +1322,7 @@ pub unsafe extern "C" fn ffi_stream_drop(stream: *mut c_void) {
 
 Note: mark `"cancelled"` errors with `error::codes::CANCELLED` in `error::to_ffi` by matching the literal message `"cancelled"` (add this branch to the `to_lowercase()` match chain in `error.rs` from Task 1) so C# maps it to `OperationCanceledException`.
 
-- [ ] **Step 2: Update `error::to_ffi` to classify the cancellation sentinel**
+- [x] **Step 2: Update `error::to_ffi` to classify the cancellation sentinel**
 
 ```rust
 // in native/fluvio-dotnet/src/error.rs, add before the final `else` branch
@@ -1332,7 +1332,7 @@ Note: mark `"cancelled"` errors with `error::codes::CANCELLED` in `error::to_ffi
 
 Run: `cd native/fluvio-dotnet && cargo test` — expected: existing error tests still pass; the streaming module compiles (`cargo build`).
 
-- [ ] **Step 3: Write `NativeBuffer.cs`**
+- [x] **Step 3: Write `NativeBuffer.cs`**
 
 ```csharp
 // src/Fluvio.Client/Interop/NativeBuffer.cs
@@ -1431,7 +1431,7 @@ internal sealed unsafe class NativeMemoryManager : MemoryManager<byte>
 
 Note: this returns *copies* backed by memory owned by the still-open `NativeBuffer`/record array, not a permanently zero-copy view — since `ToConsumeRecord` disposes the `NativeBuffer` before returning, the `NativeMemoryManager` would dangle. Fix: do not dispose `buffer` in `ToConsumeRecord`; instead have `ConsumeRecord`'s caller (`FluvioConsumer`) own and dispose the `NativeBuffer` once it has extracted the data it needs, OR copy `Value`/`Key` into managed `byte[]` via `ToArray()` at this boundary and drop zero-copy for simplicity in this task. **Take the simpler path for this task**: replace the two `unsafe` blocks above with eager `ToArray()` copies (`new ReadOnlySpan<byte>((void*)layout.Value.Ptr, (int)layout.Value.Len).ToArray()`) and dispose `buffer` immediately after — correctness over zero-copy, matching the spec's "or the caller calls `ToArray()`" fallback path (spec §6). Update `ConsumeRecord`'s `Value`/`Key` construction accordingly before running Step 5.
 
-- [ ] **Step 4: Add streaming P/Invoke declarations**
+- [x] **Step 4: Add streaming P/Invoke declarations**
 
 ```csharp
 // append inside Native class
@@ -1451,7 +1451,7 @@ internal static partial void StreamDrop(nint stream);
 internal static partial void RecordFree(nint ptr);
 ```
 
-- [ ] **Step 5: Rewrite `FluvioConsumer.StreamAsync` as a pull-based enumerator, delete `StreamingConsumer.cs`**
+- [x] **Step 5: Rewrite `FluvioConsumer.StreamAsync` as a pull-based enumerator, delete `StreamingConsumer.cs`**
 
 ```csharp
 public async IAsyncEnumerable<ConsumeRecord> StreamAsync(string topic, int partition = 0, long? offset = null,
@@ -1493,12 +1493,12 @@ public async IAsyncEnumerable<ConsumeRecord> StreamAsync(string topic, int parti
 
 Delete `src/Fluvio.Client/Consumer/StreamingConsumer.cs` and remove any remaining references to it from `FluvioConsumer.cs`'s constructor/fields.
 
-- [ ] **Step 6: Run streaming-related integration tests**
+- [x] **Step 6: Run streaming-related integration tests**
 
 Run: `grep -rl "StreamAsync" tests/Fluvio.Client.Tests/Integration` to confirm which test files exercise streaming, then, against a running cluster: `dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~ConsumerIntegrationTests"` (and `StreamingConsumerTests` if that class still exists as a separate file — if so, fold its assertions into `ConsumerIntegrationTests.cs` and delete the file, since `StreamingConsumer` the class no longer exists).
 Expected: streaming, cancellation-mid-stream, and end-of-stream cases pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add native/fluvio-dotnet src/Fluvio.Client/Interop src/Fluvio.Client/Consumer
