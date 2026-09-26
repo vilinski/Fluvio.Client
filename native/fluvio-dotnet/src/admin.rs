@@ -23,7 +23,7 @@ pub extern "C" fn ffi_admin_create_topic(
     let client_addr = client as usize;
     let name = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(name, name_len) }).into_owned();
     let spec_json = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(spec_json, spec_json_len) }).into_owned();
-    crate::runtime::runtime().spawn(async move {
+    crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let result: anyhow::Result<()> = async {
             let admin = admin_for(client).await?;
@@ -44,7 +44,7 @@ pub extern "C" fn ffi_admin_create_topic(
 pub extern "C" fn ffi_admin_delete_topic(client: *mut c_void, name: *const u8, name_len: usize, tcb: Tcb) {
     let client_addr = client as usize;
     let name = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(name, name_len) }).into_owned();
-    crate::runtime::runtime().spawn(async move {
+    crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let result: anyhow::Result<()> = async {
             let admin = admin_for(client).await?;
@@ -61,7 +61,7 @@ pub extern "C" fn ffi_admin_delete_topic(client: *mut c_void, name: *const u8, n
 #[no_mangle]
 pub extern "C" fn ffi_admin_list_topics(client: *mut c_void, tcb: Tcb) {
     let client_addr = client as usize;
-    crate::runtime::runtime().spawn(async move {
+    crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let result: anyhow::Result<String> = async {
             let admin = admin_for(client).await?;
@@ -87,7 +87,7 @@ pub extern "C" fn ffi_admin_list_topics(client: *mut c_void, tcb: Tcb) {
 pub extern "C" fn ffi_admin_get_topic(client: *mut c_void, name: *const u8, name_len: usize, tcb: Tcb) {
     let client_addr = client as usize;
     let name = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(name, name_len) }).into_owned();
-    crate::runtime::runtime().spawn(async move {
+    crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let result: anyhow::Result<Option<String>> = async {
             let admin = admin_for(client).await?;
@@ -110,7 +110,7 @@ pub extern "C" fn ffi_admin_get_topic(client: *mut c_void, name: *const u8, name
 #[no_mangle]
 pub extern "C" fn ffi_admin_list_spus(client: *mut c_void, tcb: Tcb) {
     let client_addr = client as usize;
-    crate::runtime::runtime().spawn(async move {
+    crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let result: anyhow::Result<String> = async {
             let admin = admin_for(client).await?;
@@ -128,7 +128,7 @@ pub extern "C" fn ffi_admin_list_spus(client: *mut c_void, tcb: Tcb) {
 #[no_mangle]
 pub extern "C" fn ffi_admin_get_spu(client: *mut c_void, spu_id: i32, tcb: Tcb) {
     let client_addr = client as usize;
-    crate::runtime::runtime().spawn(async move {
+    crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let result: anyhow::Result<Option<String>> = async {
             let admin = admin_for(client).await?;
@@ -174,7 +174,7 @@ pub extern "C" fn ffi_admin_list_partitions(
     } else {
         Some(String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(topic_filter, topic_filter_len) }).into_owned())
     };
-    crate::runtime::runtime().spawn(async move {
+    crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let result: anyhow::Result<String> = async {
             let admin = admin_for(client).await?;
@@ -204,7 +204,7 @@ pub extern "C" fn ffi_admin_get_partition(
 ) {
     let client_addr = client as usize;
     let topic = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(topic, topic_len) }).into_owned();
-    crate::runtime::runtime().spawn(async move {
+    crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let key = format!("{topic}-{partition}");
         let result: anyhow::Result<Option<String>> = async {
@@ -252,7 +252,7 @@ fn partition_to_json(m: Metadata<PartitionSpec>) -> serde_json::Value {
 #[no_mangle]
 pub extern "C" fn ffi_admin_list_smartmodules(client: *mut c_void, tcb: Tcb) {
     let client_addr = client as usize;
-    crate::runtime::runtime().spawn(async move {
+    crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let result: anyhow::Result<String> = async {
             let admin = admin_for(client).await?;
@@ -271,7 +271,7 @@ pub extern "C" fn ffi_admin_list_smartmodules(client: *mut c_void, tcb: Tcb) {
 pub extern "C" fn ffi_admin_get_smartmodule(client: *mut c_void, name: *const u8, name_len: usize, tcb: Tcb) {
     let client_addr = client as usize;
     let name = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(name, name_len) }).into_owned();
-    crate::runtime::runtime().spawn(async move {
+    crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let result: anyhow::Result<Option<String>> = async {
             let admin = admin_for(client).await?;
@@ -304,7 +304,7 @@ pub extern "C" fn ffi_admin_create_smartmodule(
     let client_addr = client as usize;
     let name = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(name, name_len) }).into_owned();
     let wasm_bytes = unsafe { std::slice::from_raw_parts(wasm, wasm_len) }.to_vec();
-    crate::runtime::runtime().spawn(async move {
+    crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let result: anyhow::Result<()> = async {
             let admin = admin_for(client).await?;
@@ -327,7 +327,7 @@ pub extern "C" fn ffi_admin_create_smartmodule(
 pub extern "C" fn ffi_admin_delete_smartmodule(client: *mut c_void, name: *const u8, name_len: usize, tcb: Tcb) {
     let client_addr = client as usize;
     let name = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(name, name_len) }).into_owned();
-    crate::runtime::runtime().spawn(async move {
+    crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let result: anyhow::Result<()> = async {
             let admin = admin_for(client).await?;

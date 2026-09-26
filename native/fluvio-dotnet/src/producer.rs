@@ -11,7 +11,7 @@ pub extern "C" fn ffi_producer_new(client: *mut c_void, topic: *const u8, topic_
     let client_addr = client as usize;
     let topic = unsafe { std::slice::from_raw_parts(topic, topic_len) };
     let topic = String::from_utf8_lossy(topic).into_owned();
-    crate::runtime::runtime().spawn(async move {
+    crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         match client.topic_producer(topic).await {
             Ok(producer) => {
@@ -33,7 +33,7 @@ pub extern "C" fn ffi_producer_send(
     let producer_addr = producer as usize;
     let key = if key.is_null() { None } else { Some(unsafe { std::slice::from_raw_parts(key, key_len) }.to_vec()) };
     let value = unsafe { std::slice::from_raw_parts(value, value_len) }.to_vec();
-    crate::runtime::runtime().spawn(async move {
+    crate::tcb::spawn_guarded(tcb, async move {
         let producer = unsafe { &*(producer_addr as *const TopicProducerPool) };
         let result: anyhow::Result<i64> = async {
             let produce_output = match key {
@@ -54,7 +54,7 @@ pub extern "C" fn ffi_producer_send(
 #[no_mangle]
 pub extern "C" fn ffi_producer_flush(producer: *mut c_void, tcb: Tcb) {
     let producer_addr = producer as usize;
-    crate::runtime::runtime().spawn(async move {
+    crate::tcb::spawn_guarded(tcb, async move {
         let producer = unsafe { &*(producer_addr as *const TopicProducerPool) };
         match producer.flush().await {
             Ok(()) => unsafe { complete_success(tcb, std::ptr::null_mut()) },

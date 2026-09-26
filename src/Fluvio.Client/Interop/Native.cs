@@ -13,6 +13,14 @@ internal static partial class Native
         RuntimeInit();
     }
 
+    /// <summary>
+    /// Registers <see cref="Resolve"/> as the native-library resolver for another assembly's
+    /// P/Invoke declarations (e.g. test-only `LibraryImport`s that live outside this assembly
+    /// and would otherwise miss the repo-relative Cargo build output this resolver finds).
+    /// </summary>
+    internal static void RegisterResolverFor(System.Reflection.Assembly assembly) =>
+        NativeLibrary.SetDllImportResolver(assembly, Resolve);
+
     private static nint Resolve(string libraryName, System.Reflection.Assembly assembly, DllImportSearchPath? searchPath)
     {
         if (libraryName != LibraryName) return 0;

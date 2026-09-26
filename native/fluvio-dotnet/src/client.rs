@@ -23,7 +23,7 @@ struct ConnectConfig {
 pub extern "C" fn ffi_client_connect(config_json: *const u8, config_json_len: usize, tcb: Tcb) {
     let json = unsafe { std::slice::from_raw_parts(config_json, config_json_len) };
     let json = String::from_utf8_lossy(json).into_owned();
-    crate::runtime::runtime().spawn(async move {
+    crate::tcb::spawn_guarded(tcb, async move {
         let result: anyhow::Result<Fluvio> = async {
             let connect_config: ConnectConfig = serde_json::from_str(&json)?;
             let mut config = if let Some(profile) = &connect_config.profile {
@@ -68,7 +68,7 @@ pub extern "C" fn ffi_client_health_check(client: *mut c_void, tcb: Tcb) {
     // not `Send`, even though the `Fluvio` value they point to is; the pointer is only
     // ever dereferenced on the Tokio worker thread that runs this spawned task.
     let client_addr = client as usize;
-    crate::runtime::runtime().spawn(async move {
+    crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let start = Instant::now();
         let is_healthy = client.consumer_offsets().await.is_ok();

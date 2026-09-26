@@ -56,7 +56,7 @@ pub extern "C" fn ffi_consumer_fetch_batch(
     // ever dereferenced on the Tokio worker thread that runs this spawned task.
     let client_addr = client as usize;
     let topic = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(topic, topic_len) }).into_owned();
-    crate::runtime::runtime().spawn(async move {
+    crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         // `*mut c_void` is not `Send`, so the in-progress record pointers are carried across
         // await points as plain `usize` addresses and cast back to pointers only once the
@@ -126,7 +126,7 @@ pub extern "C" fn ffi_consumer_fetch_last_offset(
     let client_addr = client as usize;
     let consumer_id = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(consumer_id, consumer_id_len) }).into_owned();
     let topic = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(topic, topic_len) }).into_owned();
-    crate::runtime::runtime().spawn(async move {
+    crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         match client.consumer_offsets().await {
             Ok(offsets) => {
@@ -154,7 +154,7 @@ pub extern "C" fn ffi_consumer_commit_offset(
     let client_addr = client as usize;
     let consumer_id = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(consumer_id, consumer_id_len) }).into_owned();
     let topic = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(topic, topic_len) }).into_owned();
-    crate::runtime::runtime().spawn(async move {
+    crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let topic_for_err = topic.clone();
         let result: anyhow::Result<()> = async {
@@ -224,7 +224,7 @@ pub extern "C" fn ffi_stream_new(
 ) {
     let client_addr = client as usize;
     let topic = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(topic, topic_len) }).into_owned();
-    crate::runtime::runtime().spawn(async move {
+    crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let result: anyhow::Result<RecordStream> = async {
             let config = ConsumerConfigExt::builder()
@@ -254,7 +254,7 @@ pub extern "C" fn ffi_stream_new(
 #[no_mangle]
 pub extern "C" fn ffi_stream_next(stream: *mut c_void, tcb: Tcb) {
     let handle_addr = stream as usize;
-    crate::runtime::runtime().spawn(async move {
+    crate::tcb::spawn_guarded(tcb, async move {
         let handle = unsafe { &*(handle_addr as *const StreamHandle) };
         let mut taken = handle.inner.lock().await;
         let mut record_stream = match taken.take() {
