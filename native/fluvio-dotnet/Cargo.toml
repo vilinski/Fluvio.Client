@@ -1,0 +1,21 @@
+[package]
+name = "fluvio-dotnet"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "fluvio_dotnet"
+crate-type = ["cdylib"]
+
+[dependencies]
+fluvio = { version = "0.50.1", features = ["admin"] }
+fluvio-controlplane-metadata = "0.50.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+once_cell = "1"
+anyhow = "1"
+
+[profile.release]
+lto = "thin"
