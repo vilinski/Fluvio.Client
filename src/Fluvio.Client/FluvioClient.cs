@@ -157,8 +157,7 @@ public sealed class FluvioClient : IFluvioClient
     public IFluvioProducer Producer(ProducerOptions? options = null)
     {
         EnsureConnected();
-        throw new NotSupportedException(
-            "Producer() is not yet backed by the native FFI layer; it will be wired up when the producer FFI is implemented.");
+        return new Producer.FluvioProducer(_handle, options);
     }
 
     /// <summary>

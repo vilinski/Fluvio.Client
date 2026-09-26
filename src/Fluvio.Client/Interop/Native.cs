@@ -61,6 +61,18 @@ internal static partial class Native
     [LibraryImport(LibraryName, EntryPoint = "ffi_string_free")]
     internal static partial void StringFree(nint ptr);
 
+    [LibraryImport(LibraryName, EntryPoint = "ffi_producer_new")]
+    internal static unsafe partial void ProducerNew(nint client, byte* topic, nuint topicLen, Tcb tcb);
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_producer_send")]
+    internal static unsafe partial void ProducerSend(nint producer, byte* key, nuint keyLen, byte* value, nuint valueLen, Tcb tcb);
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_producer_flush")]
+    internal static partial void ProducerFlush(nint producer, Tcb tcb);
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_producer_drop")]
+    internal static partial void ProducerDrop(nint producer);
+
     internal static unsafe string? ReadAndFreeString(nint ptr)
     {
         if (ptr == 0) return null;

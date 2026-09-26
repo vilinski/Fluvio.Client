@@ -4,3 +4,4 @@ pub mod tcb;
 pub mod ffi_types;
 pub mod error;
 pub mod client;
+pub mod producer;
