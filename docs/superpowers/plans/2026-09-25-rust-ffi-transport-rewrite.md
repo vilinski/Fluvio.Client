@@ -1780,12 +1780,12 @@ git commit -m "feat: replace admin wire protocol with FFI-backed topic/SPU/parti
 - Consumes: nothing new — this task only removes code made dead by Tasks 2–6.
 - Produces: a clean build with no unused-dependency warnings.
 
-- [ ] **Step 1: Confirm nothing still references the code being deleted**
+- [x] **Step 1: Confirm nothing still references the code being deleted**
 
 Run: `grep -rln "FluvioConnection\|CompressionUtils\|FluvioConfig\b\|Protocol\.\|SmartModuleEncoder" src/Fluvio.Client --include="*.cs" | grep -v "/Protocol/\|/Compression/\|/Config/\|/Network/"`
 Expected: no output (Tasks 2–6 already removed every call site as part of their own rewrites). If any file is listed, fix that reference before deleting.
 
-- [ ] **Step 2: Delete the obsolete source and test directories**
+- [x] **Step 2: Delete the obsolete source and test directories**
 
 ```bash
 git rm -r src/Fluvio.Client/Protocol
@@ -1798,16 +1798,16 @@ git rm -r src/FluvioCSharp tests/FluvioCSharp.Tests tests/FluvioCSharp.Integrati
 find src/Fluvio.Client/runtimes src/FluvioCSharp -type d -empty -delete 2>/dev/null || true
 ```
 
-- [ ] **Step 3: Remove unused package references from `Fluvio.Client.csproj`**
+- [x] **Step 3: Remove unused package references from `Fluvio.Client.csproj`**
 
 Remove the `<PackageReference>` elements for `K4os.Compression.LZ4`, `K4os.Compression.LZ4.Streams`, `Snappier`, `ZstdSharp.Port`, `System.IO.Hashing`, and `Polly` (and their corresponding version entries in `Directory.Packages.props` if that's where central package management pins versions — check with `grep -n "K4os\|Snappier\|ZstdSharp\|System.IO.Hashing\|Polly" Directory.Packages.props`).
 
-- [ ] **Step 4: Remove now-orphaned project references from the solution**
+- [x] **Step 4: Remove now-orphaned project references from the solution**
 
 Run: `grep -n "FluvioCSharp" Fluvio.Client.sln`
 Expected: if any project entries reference the deleted `FluvioCSharp`/`Fluvio.Client.IntegrationTests` projects, run `dotnet sln Fluvio.Client.sln remove <path>` for each.
 
-- [ ] **Step 5: Build and run the full unit test suite**
+- [x] **Step 5: Build and run the full unit test suite**
 
 Run: `dotnet restore Fluvio.Client.sln && dotnet build Fluvio.Client.sln --configuration Release /p:TreatWarningsAsErrors=true`
 Expected: builds cleanly with no missing-reference errors and no unused-dependency-related warnings.
@@ -1815,7 +1815,7 @@ Expected: builds cleanly with no missing-reference errors and no unused-dependen
 Run: `dotnet test Fluvio.Client.sln --filter "FullyQualifiedName!~Integration"`
 Expected: all remaining unit tests (`OffsetResolverTests`, `Headers/*`, `Producer/PartitionerTests`, `PlatformVersionTests`) pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A
