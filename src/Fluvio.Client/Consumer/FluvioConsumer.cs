@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Text;
 using Fluvio.Client.Abstractions;
 using Fluvio.Client.Interop;
@@ -8,13 +9,9 @@ using Microsoft.Extensions.Logging;
 namespace Fluvio.Client.Consumer;
 
 /// <summary>
-/// Fluvio consumer implementation. Fetch/offset operations go through the native Rust FFI layer
+/// Fluvio consumer implementation. All operations go through the native Rust FFI layer
 /// (see <see cref="Interop"/>), which wraps the official <c>fluvio</c> Rust client.
 /// </summary>
-/// <remarks>
-/// <see cref="StreamAsync"/> is not yet backed by the native FFI layer; it will be wired up
-/// (and <c>StreamingConsumer</c> deleted) when the consumer streaming FFI is implemented.
-/// </remarks>
 internal sealed class FluvioConsumer : IFluvioConsumer
 {
     private readonly RustResource _clientHandle;
@@ -45,14 +42,72 @@ internal sealed class FluvioConsumer : IFluvioConsumer
     /// <param name="offset">Starting offset (null to use offset reset strategy).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Async enumerable of consumed records.</returns>
-    public IAsyncEnumerable<ConsumeRecord> StreamAsync(
+    public async IAsyncEnumerable<ConsumeRecord> StreamAsync(
         string topic,
         int partition = 0,
         long? offset = null,
-        CancellationToken cancellationToken = default)
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        throw new NotSupportedException(
-            "StreamAsync is not yet backed by the native FFI layer; it will be wired up when the consumer streaming FFI is implemented.");
+        var startOffset = offset ?? OffsetResolver.ResolveStartOffset(null, _options.OffsetReset);
+        var topicBytes = Encoding.UTF8.GetBytes(topic);
+
+        var streamPtr = await _clientHandle.RunAsyncWithIncrement(async h =>
+        {
+            Task<nint> callTask;
+            unsafe
+            {
+                fixed (byte* tp = topicBytes)
+                {
+                    var topicAddr = (nint)tp;
+                    callTask = Callbacks.CallAsync(tcb =>
+                    {
+                        unsafe
+                        {
+                            Native.StreamNew(h, (byte*)topicAddr, (nuint)topicBytes.Length, (uint)partition, startOffset, tcb);
+                        }
+                    });
+                }
+            }
+            return await callTask.ConfigureAwait(false);
+        }).ConfigureAwait(false);
+
+        var streamHandle = new RustResource(streamPtr, Native.StreamDrop);
+        await using var registration = cancellationToken.CanBeCanceled
+            ? cancellationToken.Register(
+                static state => ((RustResource)state!).RunWithIncrement(h =>
+                {
+                    Native.StreamClose(h);
+                    return 0;
+                }),
+                streamHandle)
+            : default;
+
+        // Deliberate deviation from the plan's sketch: cancellation is allowed to propagate as
+        // an `OperationCanceledException` out of `MoveNextAsync` rather than being swallowed into
+        // a silent `yield break`. Swallowing it would make `await foreach` complete normally on
+        // cancellation, which is both non-idiomatic for a cancellable async-iterator and would
+        // break existing callers (e.g. the empty-topic streaming test) that rely on catching the
+        // exception to detect a timeout/cancellation. `Native.StreamClose` still runs first via
+        // the `cancellationToken.Register` callback above (before `streamHandle.Dispose()` in the
+        // `finally` below), and the native `tokio::select!` still completes the TCB exactly once,
+        // satisfying the plan's cancellation-race requirement regardless of how the resulting
+        // exception is handled on the C# side.
+        try
+        {
+            while (true)
+            {
+                var recordPtr = await streamHandle.RunAsyncWithIncrement(h =>
+                    Callbacks.CallAsync(tcb => Native.StreamNext(h, tcb))).ConfigureAwait(false);
+
+                if (recordPtr == 0) yield break;
+
+                yield return NativeBuffer.ToConsumeRecord(recordPtr, partition);
+            }
+        }
+        finally
+        {
+            streamHandle.Dispose();
+        }
     }
 
     /// <summary>

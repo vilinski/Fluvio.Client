@@ -28,12 +28,15 @@
 use crate::ffi_types::box_record;
 use crate::tcb::{complete_error, complete_success, Tcb};
 use fluvio::consumer::{
-    ConsumerConfigExt, ConsumerOffset, ConsumerStream, OffsetManagementStrategy, RetryMode,
+    BoxConsumerStream, ConsumerConfigExt, ConsumerOffset, ConsumerStream, OffsetManagementStrategy,
+    RetryMode,
 };
 use fluvio::{Fluvio, Offset};
 use futures::StreamExt;
 use std::os::raw::c_void;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::{Mutex, Notify};
 
 #[repr(C)]
 pub struct FFIRecordArray {
@@ -182,4 +185,130 @@ pub extern "C" fn ffi_consumer_commit_offset(
             Err(e) => unsafe { complete_error(tcb, e) },
         }
     });
+}
+
+// --- Streaming (Task 5) ---
+//
+// Deviations from the plan's sketch, again reconciled against the real fluvio 0.50.1 API:
+// - There is no bare `Pin<Box<dyn Stream<Item = Result<fluvio::consumer::Record, fluvio::FluvioError>> + Send>>`
+//   to name here: `Fluvio::consumer_with_config` returns an opaque `impl ConsumerStream<Item =
+//   Result<Record, ErrorCode>>`, and the crate already exports exactly the boxed alias needed to
+//   store it in a struct field: `fluvio::consumer::BoxConsumerStream` (`Pin<Box<dyn ConsumerStream<
+//   Item = Result<Record, ErrorCode>> + Send + 'static>>`). `RecordStream` below is that alias.
+// - `PartitionConsumer`/`consumer.stream(...)` (used in the plan's snippet) is deprecated the same
+//   way it was for fetch-batch in Task 4; `Fluvio::consumer_with_config` is used instead, built with
+//   `OffsetManagementStrategy::None` (offset tracking for streaming is out of scope here — callers
+//   use the separate fetch/commit-offset FFI from Task 4) and the default (continuous) retry mode,
+//   since unlike fetch-batch this is meant to run indefinitely rather than return a bounded slice.
+// - The stream item's error type is `fluvio_protocol::link::ErrorCode`, not `FluvioError`, so it is
+//   converted to `anyhow::Error` via `anyhow::anyhow!("{e}")` rather than `.into()`.
+// - `StreamHandle` also carries the `partition` the stream was opened against, so `ffi_stream_next`
+//   can stamp real per-record partition metadata into the boxed `FFIRecord` (the plan's sketch
+//   hardcoded `0`); the C# side overrides this with its own `partition` parameter regardless
+//   (`NativeBuffer.ToConsumeRecord(recordPtr, partition)`), so this is a correctness nicety rather
+//   than something behavior depends on.
+type RecordStream = BoxConsumerStream;
+
+pub struct StreamHandle {
+    inner: Arc<Mutex<Option<RecordStream>>>,
+    cancel: Arc<Notify>,
+    partition: u32,
+}
+
+#[no_mangle]
+pub extern "C" fn ffi_stream_new(
+    client: *mut c_void,
+    topic: *const u8, topic_len: usize,
+    partition: u32, offset: i64,
+    tcb: Tcb,
+) {
+    let client_addr = client as usize;
+    let topic = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(topic, topic_len) }).into_owned();
+    crate::runtime::runtime().spawn(async move {
+        let client = unsafe { &*(client_addr as *const Fluvio) };
+        let result: anyhow::Result<RecordStream> = async {
+            let config = ConsumerConfigExt::builder()
+                .topic(topic)
+                .partition(partition)
+                .offset_start(Offset::absolute(offset)?)
+                .offset_strategy(OffsetManagementStrategy::None)
+                .build()?;
+            let stream = client.consumer_with_config(config).await?;
+            Ok(Box::pin(stream) as RecordStream)
+        }
+        .await;
+        match result {
+            Ok(stream) => {
+                let handle = Box::new(StreamHandle {
+                    inner: Arc::new(Mutex::new(Some(stream))),
+                    cancel: Arc::new(Notify::new()),
+                    partition,
+                });
+                unsafe { complete_success(tcb, Box::into_raw(handle) as *mut c_void) };
+            }
+            Err(e) => unsafe { complete_error(tcb, e) },
+        }
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn ffi_stream_next(stream: *mut c_void, tcb: Tcb) {
+    let handle_addr = stream as usize;
+    crate::runtime::runtime().spawn(async move {
+        let handle = unsafe { &*(handle_addr as *const StreamHandle) };
+        let mut taken = handle.inner.lock().await;
+        let mut record_stream = match taken.take() {
+            Some(s) => s,
+            None => {
+                drop(taken);
+                unsafe { complete_error(tcb, anyhow::anyhow!("cancelled")) };
+                return;
+            }
+        };
+        drop(taken);
+
+        tokio::select! {
+            next = record_stream.next() => {
+                match next {
+                    Some(Ok(record)) => {
+                        // `*mut c_void` is not `Send`; carry it as a `usize` across the
+                        // `.lock().await` below, same convention as `ffi_consumer_fetch_batch`.
+                        let ptr_addr = box_record(
+                            record.offset(), record.timestamp(), handle.partition,
+                            record.key().map(|k| k.to_vec()), record.value().to_vec(),
+                        ) as usize;
+                        { let mut g = handle.inner.lock().await; *g = Some(record_stream); }
+                        unsafe { complete_success(tcb, ptr_addr as *mut c_void) };
+                    }
+                    Some(Err(e)) => unsafe { complete_error(tcb, anyhow::anyhow!("{e}")) },
+                    None => unsafe { complete_success(tcb, std::ptr::null_mut()) },
+                }
+            }
+            _ = handle.cancel.notified() => {
+                drop(record_stream);
+                unsafe { complete_error(tcb, anyhow::anyhow!("cancelled")) };
+            }
+        }
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn ffi_stream_close(stream: *mut c_void) {
+    if stream.is_null() {
+        return;
+    }
+    let handle = unsafe { &*(stream as *const StreamHandle) };
+    handle.cancel.notify_one();
+}
+
+/// # Safety
+/// `stream` must have come from `ffi_stream_new` and not yet been freed.
+#[no_mangle]
+pub unsafe extern "C" fn ffi_stream_drop(stream: *mut c_void) {
+    if stream.is_null() {
+        return;
+    }
+    let handle = Box::from_raw(stream as *mut StreamHandle);
+    handle.cancel.notify_one();
+    drop(handle);
 }

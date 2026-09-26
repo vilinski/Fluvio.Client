@@ -85,6 +85,21 @@ internal static partial class Native
     [LibraryImport(LibraryName, EntryPoint = "ffi_consumer_commit_offset")]
     internal static unsafe partial void ConsumerCommitOffset(nint client, byte* consumerId, nuint consumerIdLen, byte* topic, nuint topicLen, uint partition, long offset, Tcb tcb);
 
+    [LibraryImport(LibraryName, EntryPoint = "ffi_stream_new")]
+    internal static unsafe partial void StreamNew(nint client, byte* topic, nuint topicLen, uint partition, long offset, Tcb tcb);
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_stream_next")]
+    internal static partial void StreamNext(nint stream, Tcb tcb);
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_stream_close")]
+    internal static partial void StreamClose(nint stream);
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_stream_drop")]
+    internal static partial void StreamDrop(nint stream);
+
+    [LibraryImport(LibraryName, EntryPoint = "ffi_record_free")]
+    internal static partial void RecordFree(nint ptr);
+
     internal static unsafe string? ReadAndFreeString(nint ptr)
     {
         if (ptr == 0) return null;

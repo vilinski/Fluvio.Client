@@ -12,7 +12,9 @@ pub mod codes {
 pub fn to_ffi(e: &anyhow::Error) -> (i32, String) {
     let msg = e.chain().map(|c| c.to_string()).collect::<Vec<_>>().join(": ");
     let lower = msg.to_lowercase();
-    let code = if lower.contains("already exists") {
+    let code = if lower == "cancelled" {
+        codes::CANCELLED
+    } else if lower.contains("already exists") {
         codes::TOPIC_ALREADY_EXISTS
     } else if lower.contains("not found") || lower.contains("unknowntopic") {
         codes::TOPIC_NOT_FOUND
@@ -54,5 +56,11 @@ mod tests {
     fn defaults_to_generic() {
         let e = anyhow::anyhow!("something unexpected happened");
         assert_eq!(to_ffi(&e).0, codes::GENERIC);
+    }
+
+    #[test]
+    fn classifies_cancellation_sentinel() {
+        let e = anyhow::anyhow!("cancelled");
+        assert_eq!(to_ffi(&e).0, codes::CANCELLED);
     }
 }
