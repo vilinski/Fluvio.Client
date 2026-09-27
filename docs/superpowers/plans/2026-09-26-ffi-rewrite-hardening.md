@@ -984,11 +984,11 @@ git commit -m "feat: implement record headers end-to-end over the FFI boundary"
 - Consumes: `IPartitioner.SelectPartition`, `PartitionerConfig` (unchanged, from `Fluvio.Client.Abstractions`); `ProducerOptions.Partitioner`.
 - Produces: `FluvioProducer` calls `_options.Partitioner?.SelectPartition(...)` when set (falling back to the existing `SiphashRoundRobinPartitioner` default per current behavior) to compute an explicit partition index BEFORE calling native `ffi_producer_send`, which now sends directly to that partition.
 
-- [ ] **Step 1: Investigate explicit-partition send in the real `fluvio` crate**
+- [x] **Step 1: Investigate explicit-partition send in the real `fluvio` crate**
 
 Check `cargo doc --open -p fluvio` / the cached source under `~/.cargo/registry/.../fluvio-0.50.1/src/` for how to send to a specific partition (likely a partition-targeted send variant on `TopicProducer`, or a `RecordKey`/producer-config option). Confirm `_options.Partitioner`/`PartitionerConfig.AvailablePartitions` needs the actual partition count — check whether that's already available (e.g. from `CreateTopicAsync`'s known partition count, or query via admin) since `PartitionerConfig` requires it.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 ```csharp
 // tests/Fluvio.Client.Tests/Integration/ProducerPartitionerIntegrationTests.cs
@@ -1021,31 +1021,31 @@ public class ProducerPartitionerIntegrationTests : FluvioIntegrationTestBase
 }
 ```
 
-- [ ] **Step 3: Run to confirm it fails**
+- [x] **Step 3: Run to confirm it fails**
 
 Run: `FLUVIO_TEST_PROFILE=local dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~ProducerPartitionerIntegrationTests"`
 Expected: FAIL — records spread across all 3 partitions (current default behavior ignores `Partitioner`).
 
-- [ ] **Step 4: Implement**
+- [x] **Step 4: Implement**
 
 Update `ffi_producer_send`'s signature and body per Step 1's findings; update `FluvioProducer.SendAsync` to call `_options.Partitioner.SelectPartition(...)` (falling back to `SiphashRoundRobinPartitioner` when unset, matching current default) and pass the resulting partition index to native.
 
-- [ ] **Step 5: Run to confirm it passes**
+- [x] **Step 5: Run to confirm it passes**
 
 Run: `FLUVIO_TEST_PROFILE=local dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~ProducerPartitionerIntegrationTests"`
 Expected: PASS.
 
-- [ ] **Step 6: Confirm the default (no explicit partitioner) round-robin/siphash behavior still works**
+- [x] **Step 6: Confirm the default (no explicit partitioner) round-robin/siphash behavior still works**
 
 Run: `FLUVIO_TEST_PROFILE=local dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~PartitionerTests"`
 Expected: existing unit tests for `SiphashRoundRobinPartitioner` still pass unchanged (pure logic, untouched).
 
-- [ ] **Step 7: Run against `hetzner-tls`**
+- [x] **Step 7: Run against `hetzner-tls`**
 
 Run: `FLUVIO_TEST_PROFILE=hetzner-tls dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~ProducerPartitionerIntegrationTests"`
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add native/fluvio-dotnet/src/producer.rs src/Fluvio.Client/Producer/FluvioProducer.cs tests/Fluvio.Client.Tests/Integration/ProducerPartitionerIntegrationTests.cs
