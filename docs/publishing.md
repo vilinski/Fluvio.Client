@@ -2,6 +2,16 @@
 
 This guide explains how to package and publish the Fluvio.Client library to NuGet.
 
+> **Automated publishing:** `.github/workflows/nuget-publish.yml` runs on pushing a version tag
+> (`v1.2.3`) and packs/pushes `Fluvio.Client`/`Fluvio.Client.Abstractions` to NuGet.
+> **Known gap:** that workflow does not pass a `RuntimeIdentifier`, so it does not invoke the
+> `BuildNativeForRid`/`CopyNativeToRuntimesFolder`/`IncludeNativeInPackage` MSBuild targets in
+> `src/Fluvio.Client/Fluvio.Client.csproj` (which do build and bundle native binaries for
+> linux-x64/osx-arm64/osx-x64/win-x64, but only when packed per-RID) — a real tag-triggered
+> publish today would ship a package with no native library at all. Packing manually with an
+> explicit `-p:RuntimeIdentifier=<rid>` per platform (see below) is currently the only way to
+> produce a working package; wiring that into the tag-triggered workflow is unfinished.
+
 ## Prerequisites
 
 1. **.NET 8.0 SDK** or later
@@ -41,14 +51,20 @@ dotnet build -c Release
 ### 4. Create NuGet Packages
 
 ```bash
-# Package the abstractions library
+# Abstractions has no native dependency - no RID needed.
 dotnet pack src/Fluvio.Client.Abstractions/Fluvio.Client.Abstractions.csproj -c Release -o ./packages
 
-# Package the main library
-dotnet pack src/Fluvio.Client/Fluvio.Client.csproj -c Release -o ./packages
+# Fluvio.Client bundles a native library, so pack per-RID (see the note above) to actually
+# include it - one run per target platform, into the same output directory.
+dotnet pack src/Fluvio.Client/Fluvio.Client.csproj -c Release -o ./packages -p:RuntimeIdentifier=linux-x64
+dotnet pack src/Fluvio.Client/Fluvio.Client.csproj -c Release -o ./packages -p:RuntimeIdentifier=osx-arm64
+dotnet pack src/Fluvio.Client/Fluvio.Client.csproj -c Release -o ./packages -p:RuntimeIdentifier=osx-x64
+dotnet pack src/Fluvio.Client/Fluvio.Client.csproj -c Release -o ./packages -p:RuntimeIdentifier=win-x64
 ```
 
-This will create `.nupkg` files in the `./packages` directory.
+This will create `.nupkg` files in the `./packages` directory. Cross-compiling the native
+library for a platform other than the one you're packing on requires the matching Rust target
+installed (`rustup target add <target-triple>`) and, for some targets, a cross-linker.
 
 ## Testing the Package Locally
 

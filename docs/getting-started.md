@@ -62,7 +62,6 @@ await using var client = await FluvioClient.ConnectAsync(
 
 // Or with fully custom options (overrides config)
 var options = new FluvioClientOptions(
-    Endpoint: "localhost:9010",
     ScEndpoint: "localhost:9003",
     UseTls: false,
     ClientId: "my-app"
@@ -73,7 +72,7 @@ await using var client = await FluvioClient.ConnectAsync(options);
 **Configuration Priority:**
 1. Explicitly provided options
 2. `~/.fluvio/config` (active profile or specified profile)
-3. Defaults (localhost:9010 for SPU, localhost:9003 for SC, TLS off)
+3. Defaults (loads the current profile; without one, `localhost:9003` for SC, TLS off)
 
 ### 2. Create a Topic
 
@@ -285,22 +284,14 @@ fluvio cluster status
 fluvio profile current
 ```
 
-### Protocol Compatibility
-
-This is an initial implementation based on publicly available documentation. If you encounter protocol incompatibilities:
-
-1. Check your Fluvio version: `fluvio version`
-2. Report issues with details about your Fluvio version
-3. Consider using the official Fluvio clients for production use
-
 ## Next Steps
 
-- Read the [API Documentation](README.md#api-documentation)
-- Check out the [example projects](examples/)
+- Read the [architecture overview](architecture.md)
+- Check out the [example projects](../examples/)
 - Learn about [Fluvio concepts](https://www.fluvio.io/docs/fluvio/concepts/)
 
 ## Getting Help
 
 - [Fluvio Documentation](https://www.fluvio.io/docs/)
 - [Fluvio Discord](https://discord.gg/infinyon)
-- [GitHub Issues](https://github.com/yourusername/fluvio-dotnet-client/issues)
+- [GitHub Issues](https://github.com/vilinski/Fluvio.Client/issues)
