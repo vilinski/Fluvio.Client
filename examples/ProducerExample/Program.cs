@@ -15,7 +15,7 @@ try
     await admin.CreateTopicAsync("my-topic");
     Console.WriteLine("Topic 'my-topic' created");
 }
-catch (FluvioException ex) when (ex.Message.Contains("TopicAlreadyExists"))
+catch (TopicAlreadyExistsException)
 {
     Console.WriteLine("Topic 'my-topic' already exists");
 }

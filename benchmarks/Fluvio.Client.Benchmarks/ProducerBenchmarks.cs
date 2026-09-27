@@ -24,13 +24,13 @@ public class ProducerBenchmarks
     [GlobalSetup]
     public async Task Setup()
     {
-        // Connect to local Fluvio cluster
-        var options = new FluvioClientOptions(
-            SpuEndpoint: "localhost:9010",
-            ScEndpoint: "localhost:9003",
-            UseTls: false,
-            ClientId: "benchmark-producer"
-        );
+        // FLUVIO_TEST_PROFILE selects a named Fluvio profile (e.g. "hetzner-tls") from
+        // ~/.fluvio/config, matching tests/Fluvio.Client.Tests/Integration/IntegrationTestConfig.cs -
+        // unset connects to a local cluster with no TLS.
+        var profile = Environment.GetEnvironmentVariable("FLUVIO_TEST_PROFILE");
+        var options = string.IsNullOrWhiteSpace(profile)
+            ? new FluvioClientOptions(ScEndpoint: "localhost:9003", UseTls: false, ClientId: "benchmark-producer")
+            : new FluvioClientOptions(Profile: profile, ClientId: "benchmark-producer");
 
         _client = await FluvioClient.ConnectAsync(options);
         _producer = _client.Producer();

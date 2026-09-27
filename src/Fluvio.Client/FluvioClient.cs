@@ -1,7 +1,8 @@
+using System.Text;
+using System.Text.Json;
 using Fluvio.Client.Abstractions;
 using Fluvio.Client.Admin;
 using Fluvio.Client.Consumer;
-using Fluvio.Client.Network;
 using Fluvio.Client.Producer;
 using Fluvio.Client.Telemetry;
 using Microsoft.Extensions.Logging;
@@ -10,228 +11,103 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Fluvio.Client;
 
 /// <summary>
-/// Main Fluvio client for connecting to a Fluvio cluster
+/// Main Fluvio client for connecting to a Fluvio cluster.
+/// Connects via the native Rust FFI layer (see <see cref="Interop"/>), which wraps the
+/// official `fluvio` Rust client.
 /// </summary>
 public sealed class FluvioClient : IFluvioClient
 {
-    /// <summary>
-    /// Minimum platform version required for client compatibility.
-    /// Any Fluvio cluster running a version older than this will be rejected.
-    /// </summary>
-    private const string MinimumPlatformVersion = "0.9.0";
-
     private readonly FluvioClientOptions _options;
     private readonly ILogger<FluvioClient> _logger;
     private readonly FluvioMetrics? _metrics;
-    private FluvioConnection? _spuConnection;  // For Producer/Consumer (port 9010)
-    private FluvioConnection? _scConnection;   // For Admin (port 9003)
-    private bool _isConnected;
+    private readonly Interop.RustResource _handle;
+    private bool _disposed;
 
     /// <summary>
     /// Gets the metrics collector for this client, if metrics are enabled.
     /// </summary>
     public FluvioMetrics? Metrics => _metrics;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="FluvioClient"/> class.
-    /// Options are optional. If not provided, configuration is loaded from:
-    /// 1. ~/.fluvio/config (active profile)
-    /// 2. Sensible defaults (localhost:9010 for SPU, localhost:9003 for SC, TLS off)
-    /// </summary>
-    /// <param name="options">Client options (all optional).</param>
-    public FluvioClient(FluvioClientOptions? options = null)
+    private FluvioClient(Interop.RustResource handle, FluvioClientOptions options, ILogger<FluvioClient> logger, FluvioMetrics? metrics)
     {
-        _options = MergeWithConfig(options);
-        _logger = _options.LoggerFactory?.CreateLogger<FluvioClient>()
-                  ?? NullLoggerFactory.Instance.CreateLogger<FluvioClient>();
-        _metrics = _options.EnableMetrics ? new FluvioMetrics() : null;
+        _handle = handle;
+        _options = options;
+        _logger = logger;
+        _metrics = metrics;
     }
 
     /// <summary>
-    /// Merge provided options with configuration from ~/.fluvio/config
-    /// </summary>
-    private static FluvioClientOptions MergeWithConfig(FluvioClientOptions? provided)
-    {
-        // If everything is provided, no need to load config
-        if (provided is { SpuEndpoint: not null, ScEndpoint: not null, UseTls: not null })
-            return provided;
-
-        // Load config from ~/.fluvio/config
-        var cluster = Config.FluvioConfig.GetActiveCluster(provided?.Profile);
-
-        // Merge: provided options take precedence over config
-        var spuEndpoint = provided?.SpuEndpoint
-                          ?? cluster?.Endpoint
-                          ?? "localhost:9010";
-
-        var scEndpoint = provided?.ScEndpoint
-                        ?? (cluster?.Endpoint != null ? cluster.Endpoint.Replace(":9010", ":9003") : null)
-                        ?? "localhost:9003";
-
-        var useTls = (provided?.UseTls ?? cluster?.IsTlsEnabled) ?? false;
-
-        if (provided != null)
-        {
-            return provided with
-            {
-                SpuEndpoint = spuEndpoint,
-                ScEndpoint = scEndpoint,
-                UseTls = useTls
-            };
-        }
-
-        return new FluvioClientOptions
-        {
-            SpuEndpoint = spuEndpoint,
-            ScEndpoint = scEndpoint,
-            UseTls = useTls
-        };
-    }
-
-    /// <summary>
-    /// Create a Fluvio client and connect to the cluster
-    /// </summary>
-    /// <summary>
-    /// Creates a Fluvio client and connects to the cluster.
+    /// Creates a Fluvio client and connects to the cluster via the native FFI layer.
     /// </summary>
     /// <param name="options">Client options.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A connected <see cref="FluvioClient"/> instance.</returns>
     public static async Task<FluvioClient> ConnectAsync(FluvioClientOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var client = new FluvioClient(options);
-        await client.ConnectAsync(cancellationToken);
-        return client;
+        var mergedOptions = options ?? new FluvioClientOptions();
+        var logger = mergedOptions.LoggerFactory?.CreateLogger<FluvioClient>()
+                     ?? NullLoggerFactory.Instance.CreateLogger<FluvioClient>();
+        var metrics = mergedOptions.EnableMetrics ? new FluvioMetrics() : null;
+
+        var endpoint = mergedOptions.ScEndpoint ?? mergedOptions.SpuEndpoint ?? mergedOptions.Profile ?? "current profile";
+        logger.LogInformation("Connecting to Fluvio cluster at {Endpoint}", endpoint);
+
+        var configJson = FluvioNativeConfig.ToJson(mergedOptions);
+        var bytes = Encoding.UTF8.GetBytes(configJson);
+
+        try
+        {
+            // `p` is a "fixed local" and cannot be captured by the lambda passed to
+            // CallAsync (CS1764), so its address is captured as a plain nint instead
+            // and cast back to a pointer inside the lambda; the fixed block's pin is
+            // still in effect because CallAsync invokes the lambda synchronously.
+            var (cancelHandle, registration) = Interop.CancellationBridge.Create(cancellationToken);
+            using var _ = registration;
+            Task<nint> connectTask;
+            unsafe
+            {
+                fixed (byte* p = bytes)
+                {
+                    var configAddr = (nint)p;
+                    connectTask = Interop.Callbacks.CallAsync(tcb =>
+                    {
+                        unsafe
+                        {
+                            Interop.Native.ClientConnect((byte*)configAddr, (nuint)bytes.Length, cancelHandle, tcb);
+                        }
+                    });
+                }
+            }
+            var resultPtr = await connectTask.ConfigureAwait(false);
+
+            var handle = new Interop.RustResource(resultPtr, Interop.Native.ClientDrop);
+            logger.LogInformation("Fluvio client connected successfully to {Endpoint}", endpoint);
+            metrics?.RecordConnection(endpoint, "cluster");
+            metrics?.IncrementActiveConnections(endpoint);
+            return new FluvioClient(handle, mergedOptions, logger, metrics);
+        }
+        catch (Exception ex)
+        {
+            metrics?.RecordConnectionFailure(endpoint, "cluster", ex.GetType().Name);
+            metrics?.Dispose();
+            logger.LogError(ex, "Failed to connect to Fluvio cluster");
+            throw;
+        }
     }
 
     /// <summary>
     /// Connects the client to the Fluvio cluster.
-    /// Connects to SPU for Producer/Consumer operations.
-    /// If ScEndpoint is configured, also connects to SC for Admin operations.
     /// </summary>
+    /// <remarks>
+    /// <see cref="FluvioClient"/> instances are always already connected once constructed
+    /// (via <see cref="ConnectAsync(FluvioClientOptions?, CancellationToken)"/>), so this is a
+    /// no-op that exists to satisfy <see cref="IFluvioClient"/>.
+    /// </remarks>
     /// <param name="cancellationToken">Cancellation token.</param>
-    public async Task ConnectAsync(CancellationToken cancellationToken = default)
+    public Task ConnectAsync(CancellationToken cancellationToken = default)
     {
-        if (_isConnected)
-        {
-            _logger.LogDebug("Client already connected");
-            return;
-        }
-
-        _logger.LogInformation("Connecting to Fluvio cluster at {SpuEndpoint}", _options.SpuEndpoint);
-
-        // Parse SPU endpoint (format: "host:port")
-        var parts = _options.SpuEndpoint!.Split(':');
-        if (parts.Length != 2 || !int.TryParse(parts[1], out var port))
-        {
-            _logger.LogError("Invalid SPU endpoint format: {SpuEndpoint}. Expected format: 'host:port'", _options.SpuEndpoint);
-            throw new ArgumentException($"Invalid SPU endpoint format: {_options.SpuEndpoint}. Expected format: 'host:port'");
-        }
-
-        var host = parts[0];
-
-        try
-        {
-            // Create resilience policies for connection operations
-            var connectionLogger = _options.LoggerFactory?.CreateLogger<FluvioConnection>();
-
-            // Build resilience policy: circuit breaker + retry
-            Polly.IAsyncPolicy? spuPolicy;
-            if (_options.EnableCircuitBreaker)
-            {
-                spuPolicy = Resilience.CircuitBreakerFactory.CreateResilientPolicy(
-                    _options.MaxRetries,
-                    _options.RetryBaseDelay,
-                    _options.CircuitBreakerFailureThreshold,
-                    _options.CircuitBreakerDuration,
-                    connectionLogger);
-                _logger.LogDebug("Circuit breaker enabled for SPU connection");
-            }
-            else
-            {
-                spuPolicy = Resilience.RetryPolicyFactory.CreatePolicy(
-                    _options.MaxRetries,
-                    _options.RetryBaseDelay,
-                    connectionLogger);
-            }
-
-            _logger.LogDebug("Connecting to SPU at {Host}:{Port}", host, port);
-            _metrics?.RecordConnection(_options.SpuEndpoint!, "SPU");
-            _spuConnection = new FluvioConnection(
-                host,
-                port,
-                _options.UseTls ?? false,
-                _options.ConnectionTimeout,
-                _options.TimeProvider,
-                connectionLogger,
-                spuPolicy,
-                _options.EnableAutoReconnect,
-                _options.MaxReconnectAttempts,
-                _options.ReconnectDelay);
-            await _spuConnection.ConnectAsync(cancellationToken);
-            _metrics?.IncrementActiveConnections(_options.SpuEndpoint!);
-            _logger.LogInformation("Successfully connected to SPU at {Host}:{Port}", host, port);
-
-            // Check platform version compatibility
-            await CheckPlatformVersionAsync(_spuConnection, cancellationToken);
-
-            // Eagerly connect to SC if endpoint is configured
-            if (!string.IsNullOrEmpty(_options.ScEndpoint))
-            {
-                var scParts = _options.ScEndpoint.Split(':');
-                if (scParts.Length == 2 && int.TryParse(scParts[1], out var scPort))
-                {
-                    // Use more aggressive policy for admin operations (SC)
-                    Polly.IAsyncPolicy? scPolicy;
-                    if (_options.EnableCircuitBreaker)
-                    {
-                        var circuitBreaker = Resilience.CircuitBreakerFactory.CreateAdminPolicy(
-                            3, // Lower threshold for SC
-                            TimeSpan.FromSeconds(60),
-                            connectionLogger);
-                        var retry = Resilience.RetryPolicyFactory.CreateAdminPolicy(
-                            _options.MaxRetries,
-                            _options.RetryBaseDelay,
-                            connectionLogger);
-                        scPolicy = Polly.Policy.WrapAsync(circuitBreaker, retry);
-                        _logger.LogDebug("Circuit breaker enabled for SC connection");
-                    }
-                    else
-                    {
-                        scPolicy = Resilience.RetryPolicyFactory.CreateAdminPolicy(
-                            _options.MaxRetries,
-                            _options.RetryBaseDelay,
-                            connectionLogger);
-                    }
-
-                    _logger.LogDebug("Connecting to SC at {Host}:{Port}", scParts[0], scPort);
-                    _metrics?.RecordConnection(_options.ScEndpoint, "SC");
-                    _scConnection = new FluvioConnection(
-                        scParts[0],
-                        scPort,
-                        _options.UseTls ?? false,
-                        _options.ConnectionTimeout,
-                        _options.TimeProvider,
-                        connectionLogger,
-                        scPolicy,
-                        _options.EnableAutoReconnect,
-                        _options.MaxReconnectAttempts,
-                        _options.ReconnectDelay);
-                    await _scConnection.ConnectAsync(cancellationToken);
-                    _metrics?.IncrementActiveConnections(_options.ScEndpoint);
-                    _logger.LogInformation("Successfully connected to SC at {Host}:{Port}", scParts[0], scPort);
-                }
-            }
-
-            _isConnected = true;
-            _logger.LogInformation("Fluvio client connected successfully");
-        }
-        catch (Exception ex)
-        {
-            _metrics?.RecordConnectionFailure(_options.SpuEndpoint, "SPU", ex.GetType().Name);
-            _logger.LogError(ex, "Failed to connect to Fluvio cluster");
-            throw;
-        }
+        EnsureConnected();
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -242,8 +118,7 @@ public sealed class FluvioClient : IFluvioClient
     public IFluvioProducer Producer(ProducerOptions? options = null)
     {
         EnsureConnected();
-        _logger.LogDebug("Creating producer instance");
-        return new FluvioProducer(_spuConnection!, _scConnection, options, _options.ClientId);
+        return new Producer.FluvioProducer(_handle, options);
     }
 
     /// <summary>
@@ -254,151 +129,29 @@ public sealed class FluvioClient : IFluvioClient
     public IFluvioConsumer Consumer(ConsumerOptions? options = null)
     {
         EnsureConnected();
-        _logger.LogDebug("Creating consumer instance");
-        return new FluvioConsumer(_spuConnection!, options, _options.ClientId);
+        return new Consumer.FluvioConsumer(_handle, options, _options.ClientId, _logger);
     }
 
     /// <summary>
     /// Gets an admin instance.
-    /// Requires SC connection to be established (via ScEndpoint in options during ConnectAsync).
     /// </summary>
     /// <returns>An admin instance.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when SC connection is not available.</exception>
     public IFluvioAdmin Admin()
     {
         EnsureConnected();
-
-        if (_scConnection == null)
-        {
-            _logger.LogError("Cannot create Admin instance: SC connection not established");
-            throw new InvalidOperationException(
-                "SC connection not established. Configure ScEndpoint in FluvioClientOptions to use Admin operations.");
-        }
-
-        _logger.LogDebug("Creating admin instance");
-        return new FluvioAdmin(_scConnection, _options.ClientId);
+        return new Admin.FluvioAdmin(_handle);
     }
 
     private void EnsureConnected()
     {
-        if (!_isConnected || _spuConnection == null)
+        if (_disposed || _handle.IsInvalid)
         {
             throw new InvalidOperationException("Client is not connected. Call ConnectAsync first.");
         }
     }
 
     /// <summary>
-    /// Checks the Fluvio platform version compatibility.
-    /// </summary>
-    /// <param name="connection">The connection to check.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    private async Task CheckPlatformVersionAsync(FluvioConnection connection, CancellationToken cancellationToken)
-    {
-        try
-        {
-            _logger.LogDebug("Checking platform version compatibility");
-
-            // Send ApiVersions request (empty body)
-            using var writer = new Protocol.FluvioBinaryWriter();
-            var requestBody = writer.ToArray();
-
-            var responseBytes = await connection.SendRequestAsync(
-                Protocol.ApiKey.ApiVersions,
-                0, // API version
-                _options.ClientId,
-                requestBody,
-                cancellationToken);
-
-            // Parse response
-            using var reader = new Protocol.FluvioBinaryReader(responseBytes);
-
-            // ErrorCode (i16)
-            var errorCode = (Protocol.ErrorCode)reader.ReadInt16();
-            if (errorCode != Protocol.ErrorCode.None)
-            {
-                _logger.LogWarning("ApiVersions request returned error code: {ErrorCode}", errorCode);
-                // Don't fail on error, just log - some older clusters may not support this
-                return;
-            }
-
-            // ApiKeys: Vec<ApiVersion>
-            var apiKeyCount = reader.ReadInt32();
-            _logger.LogDebug("Server supports {ApiKeyCount} API keys", apiKeyCount);
-
-            // Skip api keys (we only care about platform_version)
-            for (int i = 0; i < apiKeyCount; i++)
-            {
-                reader.ReadInt16(); // api_key
-                reader.ReadInt16(); // min_version
-                reader.ReadInt16(); // max_version
-            }
-
-            // PlatformVersion (String)
-            var platformVersion = reader.ReadString();
-
-            if (string.IsNullOrEmpty(platformVersion))
-            {
-                _logger.LogWarning("Platform version not provided by cluster, skipping version check");
-                return;
-            }
-
-            // 0.0.0 is the default version for local/dev clusters - allow it
-            if (platformVersion == "0.0.0")
-            {
-                _logger.LogInformation("Platform version 0.0.0 detected (local/dev cluster), skipping version check");
-                return;
-            }
-
-            _logger.LogInformation("Fluvio cluster platform version: {PlatformVersion}", platformVersion);
-
-            // Validate version
-            if (!IsVersionCompatible(platformVersion, MinimumPlatformVersion))
-            {
-                throw new IncompatiblePlatformVersionException(MinimumPlatformVersion, platformVersion);
-            }
-
-            _logger.LogDebug("Platform version check passed");
-        }
-        catch (IncompatiblePlatformVersionException)
-        {
-            throw; // Re-throw version incompatibility errors
-        }
-        catch (Exception ex)
-        {
-            // Log but don't fail - version check is a best-effort feature
-            _logger.LogWarning(ex, "Failed to check platform version, continuing anyway");
-        }
-    }
-
-    /// <summary>
-    /// Checks if the cluster version is compatible with the minimum required version.
-    /// </summary>
-    /// <param name="clusterVersion">The cluster's platform version.</param>
-    /// <param name="minimumVersion">The minimum required version.</param>
-    /// <returns>True if compatible, false otherwise.</returns>
-    private static bool IsVersionCompatible(string clusterVersion, string minimumVersion)
-    {
-        // Allow 0.0.0 as it often indicates a dev/test cluster
-        if (clusterVersion == "0.0.0") return true;
-
-        try
-        {
-            // Parse versions using System.Version (semver-compatible)
-            var cluster = Version.Parse(clusterVersion);
-            var minimum = Version.Parse(minimumVersion);
-
-            return cluster >= minimum;
-        }
-        catch
-        {
-            // If version parsing fails, assume compatible
-            return true;
-        }
-    }
-
-    /// <summary>
-    /// Checks the health of the Fluvio client connections.
-    /// Performs a lightweight health check by verifying connection status and optionally testing with a list topics request.
+    /// Checks the health of the Fluvio client connection via the native FFI layer.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Health check result with connection status and diagnostics.</returns>
@@ -406,85 +159,98 @@ public sealed class FluvioClient : IFluvioClient
     {
         _logger.LogDebug("Performing health check");
 
+        if (_disposed || _handle.IsInvalid)
+        {
+            return HealthCheckResult.Unhealthy("Client not connected");
+        }
+
         try
         {
-            if (!_isConnected || _spuConnection == null)
-            {
-                return HealthCheckResult.Unhealthy("Client not connected");
-            }
-
-            var spuConnected = _spuConnection.IsConnected;
-            var scConnected = _scConnection?.IsConnected;
-
-            if (!spuConnected)
-            {
-                return HealthCheckResult.Unhealthy("SPU connection lost", false, scConnected);
-            }
-
-            // Perform a lightweight request to verify the connection is responsive
-            // Use ListTopics as it's a simple read-only operation
-            if (_scConnection != null && scConnected == true)
-            {
-                try
-                {
-                    var startTime = _options.TimeProvider.GetUtcNow();
-                    var admin = Admin();
-
-                    // Quick timeout for health check (5 seconds)
-                    using var healthCheckCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                    using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, healthCheckCts.Token);
-
-                    await admin.ListTopicsAsync(linkedCts.Token);
-                    TimeSpan? requestDuration = _options.TimeProvider.GetUtcNow() - startTime;
-
-                    _logger.LogInformation("Health check passed: SPU={SpuConnected}, SC={ScConnected}, RequestDuration={Duration}ms",
-                        spuConnected, scConnected, requestDuration?.TotalMilliseconds);
-
-                    return HealthCheckResult.Healthy(spuConnected, scConnected, requestDuration);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Health check request failed");
-                    return HealthCheckResult.Unhealthy($"Health check request failed: {ex.Message}", spuConnected, scConnected);
-                }
-            }
-
-            // If no SC connection, just return connection status
-            _logger.LogInformation("Health check passed: SPU={SpuConnected}, SC={ScConnected}", spuConnected, scConnected);
-            return HealthCheckResult.Healthy(spuConnected, scConnected, null);
+            var (cancelHandle, registration) = Interop.CancellationBridge.Create(cancellationToken);
+            using var _ = registration;
+            var jsonPtr = await _handle.RunAsyncWithIncrement(h =>
+                Interop.Callbacks.CallAsync(tcb => Interop.Native.ClientHealthCheck(h, cancelHandle, tcb))).ConfigureAwait(false);
+            var json = Interop.Native.ReadAndFreeString(jsonPtr);
+            var result = FluvioNativeConfig.ParseHealth(json);
+            _logger.LogInformation("Health check completed: IsHealthy={IsHealthy}", result.IsHealthy);
+            return result;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Health check failed");
-            return HealthCheckResult.Unhealthy($"Health check error: {ex.Message}");
+            _logger.LogWarning(ex, "Health check request failed");
+            return HealthCheckResult.Unhealthy($"Health check request failed: {ex.Message}");
         }
     }
 
     /// <summary>
     /// Disposes the client and its resources.
     /// </summary>
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
+        if (_disposed)
+        {
+            return ValueTask.CompletedTask;
+        }
+
         _logger.LogDebug("Disposing Fluvio client");
+        _disposed = true;
+        _handle.Dispose();
 
-        if (_spuConnection != null)
-        {
-            _metrics?.DecrementActiveConnections(_options.SpuEndpoint!);
-            await _spuConnection.DisposeAsync();
-            _spuConnection = null;
-            _logger.LogDebug("SPU connection disposed");
-        }
-
-        if (_scConnection != null)
-        {
-            _metrics?.DecrementActiveConnections(_options.ScEndpoint!);
-            await _scConnection.DisposeAsync();
-            _scConnection = null;
-            _logger.LogDebug("SC connection disposed");
-        }
-
-        _isConnected = false;
+        var endpoint = _options.ScEndpoint ?? _options.SpuEndpoint ?? _options.Profile ?? "current profile";
+        _metrics?.DecrementActiveConnections(endpoint);
         _metrics?.Dispose();
+
         _logger.LogInformation("Fluvio client disposed");
+        return ValueTask.CompletedTask;
+    }
+}
+
+/// <summary>
+/// Builds the JSON payload sent to the native FFI's client-connect entry point, and parses
+/// the JSON payload returned by its health-check entry point.
+/// </summary>
+internal static class FluvioNativeConfig
+{
+    /// <summary>
+    /// Builds the connect-config JSON consumed by the Rust side's <c>ConnectConfig</c> DTO,
+    /// which is then translated into a real <c>fluvio::FluvioConfig</c> (whose <c>tls</c> field
+    /// is a <c>TlsPolicy</c> enum, not a plain boolean, so it cannot be deserialized directly
+    /// from this shape). Built with <see cref="Utf8JsonWriter"/>/<see cref="JsonDocument"/> rather
+    /// than reflection-based <see cref="JsonSerializer"/> so this stays trim/AOT compatible.
+    /// </summary>
+    public static string ToJson(FluvioClientOptions options)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("endpoint", options.ScEndpoint ?? options.SpuEndpoint);
+            writer.WriteString("profile", options.Profile);
+            writer.WriteString("clientId", options.ClientId);
+            if (options.UseTls is bool useTls)
+                writer.WriteBoolean("useTls", useTls);
+            writer.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    public static HealthCheckResult ParseHealth(string? json)
+    {
+        if (string.IsNullOrEmpty(json))
+        {
+            return HealthCheckResult.Unhealthy("Health check returned no data");
+        }
+
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+
+        var isHealthy = root.TryGetProperty("isHealthy", out var isHealthyProp) && isHealthyProp.GetBoolean();
+        TimeSpan? duration = root.TryGetProperty("elapsedMs", out var elapsedProp) && elapsedProp.TryGetInt64(out var ms)
+            ? TimeSpan.FromMilliseconds(ms)
+            : null;
+
+        return isHealthy
+            ? HealthCheckResult.Healthy(spuConnected: true, scConnected: true, duration)
+            : HealthCheckResult.Unhealthy("Native health probe failed", spuConnected: false);
     }
 }

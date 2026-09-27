@@ -12,12 +12,7 @@ public class AdminBasicTest(ITestOutputHelper output)
     public async Task CanCreateAndDeleteTopicViaSC()
     {
         // Connect to Fluvio with SC endpoint for Admin operations
-        var options = new FluvioClientOptions(
-            SpuEndpoint: "localhost:9010",   // SPU for data operations
-            ScEndpoint: "localhost:9003",    // SC for Admin operations
-            UseTls: false,
-            ClientId: "admin-basic-test"
-        );
+        var options = IntegrationTestConfig.Create("admin-basic-test");
 
         await using var client = await FluvioClient.ConnectAsync(options);
         output.WriteLine("Connected to Fluvio SPU!");
@@ -66,12 +61,7 @@ public class AdminBasicTest(ITestOutputHelper output)
     public async Task CanListTopicsViaSC()
     {
         // Connect to Fluvio with SC endpoint for Admin operations
-        var options = new FluvioClientOptions(
-            SpuEndpoint: "localhost:9010",   // SPU for data operations
-            ScEndpoint: "localhost:9003",    // SC for Admin operations
-            UseTls: false,
-            ClientId: "admin-list-test"
-        );
+        var options = IntegrationTestConfig.Create("admin-list-test");
 
         await using var client = await FluvioClient.ConnectAsync(options);
         output.WriteLine("Connected to Fluvio!");

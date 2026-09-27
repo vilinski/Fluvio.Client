@@ -17,8 +17,15 @@ public interface IFluvioConsumer : IAsyncDisposable
     IAsyncEnumerable<ConsumeRecord> StreamAsync(string topic, int partition = 0, long? offset = null, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Fetch a batch of records from the specified topic
+    /// Fetch a batch of records from the specified topic.
     /// </summary>
+    /// <remarks>
+    /// Blocks until at least one record is available, then applies a short grace period to collect
+    /// any further records already in flight before returning what it has. Against a topic/partition
+    /// with no data at all, this call has NO internal timeout and will not return on its own — pass a
+    /// bounded <paramref name="cancellationToken"/> (e.g. a <see cref="CancellationTokenSource"/> with
+    /// a timeout) if the caller cannot guarantee data will arrive.
+    /// </remarks>
     Task<IReadOnlyList<ConsumeRecord>> FetchBatchAsync(string topic, int partition = 0, long offset = 0, int maxBytes = 1024 * 1024, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -34,16 +41,13 @@ public interface IFluvioConsumer : IAsyncDisposable
 
     /// <summary>
     /// Commits (updates) the consumer offset for a specific topic/partition.
-    /// Note: Requires an active StreamFetch session ID. This is currently not supported
-    /// without an active stream. For MVP, consider tracking offsets client-side.
     /// </summary>
     /// <param name="consumerId">Consumer ID</param>
     /// <param name="topic">Topic name</param>
     /// <param name="partition">Partition number</param>
     /// <param name="offset">Offset to commit</param>
-    /// <param name="sessionId">Stream session ID from active StreamFetch</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    Task CommitOffsetAsync(string consumerId, string topic, int partition, long offset, uint sessionId, CancellationToken cancellationToken = default);
+    Task CommitOffsetAsync(string consumerId, string topic, int partition, long offset, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -54,5 +58,4 @@ public record ConsumeRecord(
     ReadOnlyMemory<byte> Value,
     ReadOnlyMemory<byte>? Key = null,
     DateTimeOffset Timestamp = default,
-    int Partition = 0,
-    IReadOnlyDictionary<string, ReadOnlyMemory<byte>>? Headers = null);
+    int Partition = 0);

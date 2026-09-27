@@ -179,24 +179,14 @@ public class BatchFlushIntegrationTests : FluvioIntegrationTestBase
     }
 
     [Fact]
-    public async Task Producer_WithHeaders_BatchesCorrectly()
+    public async Task Producer_TwoRecords_BatchesCorrectly()
     {
         // Arrange
         var topic = await CreateTestTopicAsync();
         var options = new ProducerOptions(BatchSize: 2, LingerTime: TimeSpan.FromSeconds(10));
         var producer = Client!.Producer(options);
 
-        var headers1 = new Dictionary<string, ReadOnlyMemory<byte>>
-        {
-            ["id"] = "1"u8.ToArray()
-        };
-
-        var headers2 = new Dictionary<string, ReadOnlyMemory<byte>>
-        {
-            ["id"] = "2"u8.ToArray()
-        };
-
-        // Act - Send records with headers
+        // Act
         var task1 = producer.SendAsync(topic, "message-1"u8.ToArray());
         var task2 = producer.SendAsync(topic, "message-2"u8.ToArray());
 
@@ -205,7 +195,6 @@ public class BatchFlushIntegrationTests : FluvioIntegrationTestBase
         // Assert
         Assert.Equal(2, offsets.Length);
 
-        // Verify records and headers
         var consumer = Client!.Consumer();
         var records = await consumer.FetchBatchAsync(topic, partition: 0, offset: 0);
         Assert.Equal(2, records.Count);
@@ -236,5 +225,31 @@ public class BatchFlushIntegrationTests : FluvioIntegrationTestBase
 
         // Assert
         Assert.Equal(2, offsets.Length);
+    }
+
+    [Fact]
+    public async Task ConcurrentSendAndDispose_DoesNotHangOrThrowUnexpectedly()
+    {
+        var topic = await CreateTestTopicAsync();
+        var producer = Client!.Producer();
+
+        var sendTasks = Enumerable.Range(0, 20)
+            .Select(i => Task.Run(async () =>
+            {
+                try { await producer.SendAsync(topic, new byte[] { (byte)i }); }
+                catch (ObjectDisposedException) { /* acceptable if dispose won the race */ }
+            }))
+            .ToArray();
+
+        var disposeTask = Task.Run(async () =>
+        {
+            await Task.Delay(5);
+            await producer.DisposeAsync();
+        });
+
+        var all = Task.WhenAll(sendTasks.Append(disposeTask));
+        var completed = await Task.WhenAny(all, Task.Delay(TimeSpan.FromSeconds(10)));
+        Assert.Same(all, completed); // must not hang
+        await all; // surface any exception gathered inside `all` instead of silently swallowing it
     }
 }

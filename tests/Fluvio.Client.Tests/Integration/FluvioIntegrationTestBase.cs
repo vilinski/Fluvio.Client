@@ -16,12 +16,7 @@ public abstract class FluvioIntegrationTestBase : IAsyncLifetime
     public async Task InitializeAsync()
     {
         // Connect to local Fluvio SPU and SC
-        var options = new FluvioClientOptions(
-            SpuEndpoint: "localhost:9010",  // SPU endpoint
-            ScEndpoint: "localhost:9003",   // SC endpoint
-            UseTls: false,
-            ClientId: "integration-test"
-        );
+        var options = IntegrationTestConfig.Create("integration-test");
 
         Client = await FluvioClient.ConnectAsync(options);
     }

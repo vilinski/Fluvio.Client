@@ -34,6 +34,22 @@ jobs:
       if: runner.os == 'Linux'
       run: dotnet format --verify-no-changes --verbosity diagnostic
 
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache Rust build
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: native/fluvio-dotnet -> target
+
+    - name: Build native library (debug)
+      working-directory: native/fluvio-dotnet
+      run: cargo build
+
+    - name: Run native unit tests
+      working-directory: native/fluvio-dotnet
+      run: cargo test
+
     - name: Restore dependencies
       run: dotnet restore Fluvio.Client.sln
 

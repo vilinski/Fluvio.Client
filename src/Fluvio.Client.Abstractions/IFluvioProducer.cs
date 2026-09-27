@@ -39,5 +39,4 @@ public interface IFluvioProducer : IAsyncDisposable
 /// </summary>
 public record ProduceRecord(
     ReadOnlyMemory<byte> Value,
-    ReadOnlyMemory<byte>? Key = null,
-    IReadOnlyDictionary<string, ReadOnlyMemory<byte>>? Headers = null);
+    ReadOnlyMemory<byte>? Key = null);

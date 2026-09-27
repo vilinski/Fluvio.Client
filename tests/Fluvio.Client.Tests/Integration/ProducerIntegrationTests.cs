@@ -158,19 +158,31 @@ public class ProducerIntegrationTests : FluvioIntegrationTestBase
             // Wait for records to be persisted
             await Task.Delay(500);
 
-            // Consume from each partition and verify distribution
+            // Consume from each partition and verify distribution. Uses FetchBatchAsync (bounded by an
+            // explicit CancellationToken) rather than StreamAsync: the 30 records are split across 3
+            // partitions, so no single partition ever reaches 30 records, and StreamAsync's stream is
+            // intentionally continuous/infinite (Task 5) - enumerating it with a "stop at 30" break
+            // that never fires hangs forever. Confirmed by an actual CI hang on this exact test.
             var partitionCounts = new Dictionary<int, int>();
 
             for (var partition = 0; partition < 3; partition++)
             {
-                var count = 0;
-                await foreach (var record in consumer.StreamAsync(topicName, partition, offset: 0))
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                IReadOnlyList<Fluvio.Client.Abstractions.ConsumeRecord> batch;
+                try
+                {
+                    batch = await consumer.FetchBatchAsync(topicName, partition: partition, offset: 0, cancellationToken: cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    batch = Array.Empty<Fluvio.Client.Abstractions.ConsumeRecord>();
+                }
+
+                foreach (var record in batch)
                 {
                     Assert.Equal(partition, record.Partition);
-                    count++;
-                    if (count >= 30) break;
                 }
-                partitionCounts[partition] = count;
+                partitionCounts[partition] = batch.Count;
             }
 
             // Verify all records were distributed (total 30)
@@ -187,112 +199,88 @@ public class ProducerIntegrationTests : FluvioIntegrationTestBase
         }
     }
 
+    // SendAsync_WithSpecificPartitioner_AllRecordsGoToSamePartition and SendAsync_SameKey_GoesToSamePartition
+    // used to live here. Both enumerated StreamAsync on partitions expected to stay empty, with no
+    // cancellation bound — since Task 5's StreamAsync is intentionally a continuous/infinite stream,
+    // that hangs forever instead of ever observing "0 records". Their intent (custom partitioner routes
+    // deterministically; same key always goes to the same partition) now lives in
+    // ProducerPartitionerIntegrationTests.cs, using bounded FetchBatchAsync calls instead.
+
     [Fact]
-    public async Task SendAsync_WithSpecificPartitioner_AllRecordsGoToSamePartition()
+    public async Task SendAsync_CancelledBeforeCompletion_ThrowsTaskCanceledException()
     {
-        // Create topic with 3 partitions
-        var topicName = await CreateTestTopicAsync(partitions: 3);
-
-        var producerOptions = new ProducerOptions(
-            Partitioner: new Fluvio.Client.Producer.SpecificPartitioner(1) // Always use partition 1
-        );
-        var producer = Client!.Producer(producerOptions);
-        var consumer = Client!.Consumer();
-
+        var topic = await CreateTestTopicAsync();
         try
         {
-            // Send 10 records (should all go to partition 1)
-            for (var i = 0; i < 10; i++)
-            {
-                await producer.SendAsync(topicName, Encoding.UTF8.GetBytes($"value-{i}"));
-            }
-
-            // Wait for records to be persisted
-            await Task.Delay(500);
-
-            // Check partition 0 - should be empty
-            var partition0Count = 0;
-            await foreach (var _ in consumer.StreamAsync(topicName, 0, offset: 0))
-            {
-                partition0Count++;
-                if (partition0Count >= 10) break;
-            }
-            Assert.Equal(0, partition0Count);
-
-            // Check partition 1 - should have all 10 records
-            var partition1Count = 0;
-            await foreach (var record in consumer.StreamAsync(topicName, 1, offset: 0))
-            {
-                Assert.Equal(1, record.Partition);
-                partition1Count++;
-                if (partition1Count >= 10) break;
-            }
-            Assert.Equal(10, partition1Count);
-
-            // Check partition 2 - should be empty
-            var partition2Count = 0;
-            await foreach (var _ in consumer.StreamAsync(topicName, 2, offset: 0))
-            {
-                partition2Count++;
-                if (partition2Count >= 10) break;
-            }
-            Assert.Equal(0, partition2Count);
+            var producer = Client!.Producer();
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+            await Assert.ThrowsAsync<TaskCanceledException>(
+                () => producer.SendAsync(topic, new byte[] { 1, 2, 3 }, cancellationToken: cts.Token));
         }
         finally
         {
-            await CleanupTopicAsync(topicName);
+            await CleanupTopicAsync(topic);
         }
     }
 
     [Fact]
-    public async Task SendAsync_SameKey_GoesToSamePartition()
+    public async Task SendAsync_RespectsInternalTimeout_WhenVeryShort()
     {
-        // Create topic with 3 partitions
-        var topicName = await CreateTestTopicAsync(partitions: 3);
-        var producer = Client!.Producer();
-        var consumer = Client!.Consumer();
-
+        // Exercises CreateSendTimeoutSource's real 1ms-linked-timeout path directly, rather than
+        // mutating any shared/static state (a prior version of this test did that via a mutable
+        // FluvioProducer.SendTimeoutOverride field and it leaked across concurrently executing
+        // test classes in the same process — this approach cannot leak since nothing is shared).
+        using var timeoutCts = Fluvio.Client.Producer.FluvioProducer.CreateSendTimeoutSource(
+            CancellationToken.None, TimeSpan.FromMilliseconds(1));
+        var topic = await CreateTestTopicAsync();
         try
         {
-            var key = Encoding.UTF8.GetBytes("consistent-key");
-
-            // Send 10 records with the same key
-            for (var i = 0; i < 10; i++)
-            {
-                await producer.SendAsync(topicName, Encoding.UTF8.GetBytes($"value-{i}"), key);
-            }
-
-            // Wait for records to be persisted
-            await Task.Delay(500);
-
-            // Find which partition the records went to
-            int? targetPartition = null;
-            var recordCount = 0;
-
-            for (var partition = 0; partition < 3; partition++)
-            {
-                var partitionCount = 0;
-                await foreach (var record in consumer.StreamAsync(topicName, partition, offset: 0))
-                {
-                    partitionCount++;
-                    Assert.Equal(partition, record.Partition);
-                    if (partitionCount >= 10) break;
-                }
-
-                if (partitionCount > 0)
-                {
-                    targetPartition = partition;
-                    recordCount = partitionCount;
-                }
-            }
-
-            // Verify all 10 records went to the same partition
-            Assert.NotNull(targetPartition);
-            Assert.Equal(10, recordCount);
+            var producer = Client!.Producer();
+            // A real send against a healthy cluster may still beat 1ms depending on timing;
+            // assert it EITHER completes fast OR throws OperationCanceledException — never hangs.
+            var task = producer.SendAsync(topic, new byte[] { 1 }, cancellationToken: timeoutCts.Token);
+            var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(5)));
+            Assert.Same(task, completed);
         }
         finally
         {
-            await CleanupTopicAsync(topicName);
+            await CleanupTopicAsync(topic);
+        }
+    }
+
+    [Fact]
+    public async Task SendAsync_ConcurrentCallersSameTopic_OneCancelledUpFront_DoesNotCancelTheOthers()
+    {
+        // Important regression: GetOrCreateProducerHandleAsync used to create the shared, per-topic
+        // producer-creation task using whichever caller happened to be first's own linked
+        // timeout/cancellation token. A second concurrent SendAsync call for the same (not-yet-
+        // created) topic awaits that SAME task, so the first caller's cancellation used to cancel
+        // the second caller too, even though the second caller's own token was never cancelled.
+        //
+        // Both calls are started (not awaited) back-to-back on the same thread: SendAsync runs
+        // synchronously up to its first real await (inside CreateProducerHandleAsync's native call),
+        // so by the time the second SendAsync call runs, the first has already registered the
+        // shared creation task in the topic dictionary - making which task the second call observes
+        // deterministic, not a timing race.
+        var topic = await CreateTestTopicAsync();
+        try
+        {
+            var producer = Client!.Producer();
+            using var preCancelledCts = new CancellationTokenSource();
+            preCancelledCts.Cancel();
+
+            var cancelledTask = producer.SendAsync(topic, new byte[] { 1 }, cancellationToken: preCancelledCts.Token);
+            var healthyTask = producer.SendAsync(topic, new byte[] { 2 });
+
+            await Assert.ThrowsAsync<TaskCanceledException>(() => cancelledTask);
+
+            var offset = await healthyTask; // must NOT be cancelled by the other caller's token
+            Assert.True(offset >= 0);
+        }
+        finally
+        {
+            await CleanupTopicAsync(topic);
         }
     }
 }

@@ -14,13 +14,12 @@ var loggerFactory = LoggerFactory.Create(builder =>
 
 Console.WriteLine("=== Fluvio Client Logging Example ===\n");
 
-// Configure client with logging and retry
+// Configure client with logging. Retry/reconnect behavior is handled by the native fluvio
+// client/connection layer, not a C#-level option.
 var options = new FluvioClientOptions(
     SpuEndpoint: "localhost:9010",
     ScEndpoint: "localhost:9003",
-    LoggerFactory: loggerFactory,
-    MaxRetries: 3,
-    RetryBaseDelay: TimeSpan.FromMilliseconds(100)
+    LoggerFactory: loggerFactory
 );
 
 try
