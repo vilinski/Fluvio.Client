@@ -91,20 +91,15 @@ foreach (var topic in topics)
 Main entry point for connecting to a Fluvio cluster.
 
 ```csharp
-var client = new FluvioClient(new FluvioClientOptions
+await using var client = await FluvioClient.ConnectAsync(new FluvioClientOptions
 {
     SpuEndpoint = "localhost:9010",  // SPU for data operations
     ScEndpoint = "localhost:9003",   // SC for admin operations
     UseTls = false,
     ClientId = "my-client",
     ConnectionTimeout = TimeSpan.FromSeconds(30),
-    RequestTimeout = TimeSpan.FromSeconds(60),
-    EnableAutoReconnect = true,       // Automatic reconnection on failure
-    MaxReconnectAttempts = 5,         // Up to 5 reconnection attempts
-    ReconnectDelay = TimeSpan.FromSeconds(2)  // 2s base delay with exponential backoff
+    RequestTimeout = TimeSpan.FromSeconds(60)
 });
-
-await client.ConnectAsync();
 ```
 
 ### Producer API

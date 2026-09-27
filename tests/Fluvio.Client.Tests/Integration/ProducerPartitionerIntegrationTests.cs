@@ -5,38 +5,43 @@ namespace Fluvio.Client.Tests.Integration;
 [Collection("Integration")]
 public class ProducerPartitionerIntegrationTests : FluvioIntegrationTestBase
 {
-    private sealed class AlwaysPartitionZero : IPartitioner
+    private sealed class AlwaysPartitionTwo : IPartitioner
     {
-        public int SelectPartition(string topic, ReadOnlyMemory<byte>? key, ReadOnlyMemory<byte> value, PartitionerConfig config) => 0;
+        public int SelectPartition(string topic, ReadOnlyMemory<byte>? key, ReadOnlyMemory<byte> value, PartitionerConfig config) => 2;
     }
 
     [Fact]
     public async Task SendAsync_WithCustomPartitioner_AllRecordsGoToSelectedPartition()
     {
+        // Regression: a partitioner that always selects partition 0 is indistinguishable from a
+        // silently-ignored custom partitioner, since the native DynamicPartitioner's own fallback
+        // (when no explicit partition is set) is also 0 - such a test would still pass even if the
+        // explicit-partitioning wiring were completely broken. Targeting partition 2 (never the
+        // fallback) is what actually proves the custom IPartitioner is consulted.
         var topic = await CreateTestTopicAsync(partitions: 3);
         try
         {
-            var producer = Client!.Producer(new ProducerOptions(Partitioner: new AlwaysPartitionZero()));
+            var producer = Client!.Producer(new ProducerOptions(Partitioner: new AlwaysPartitionTwo()));
             for (var i = 0; i < 10; i++)
             {
                 await producer.SendAsync(topic, new byte[] { (byte)i });
             }
             await producer.FlushAsync();
 
-            var partition0 = await Client!.Consumer().FetchBatchAsync(topic, partition: 0, offset: 0);
+            var partition2 = await Client!.Consumer().FetchBatchAsync(topic, partition: 2, offset: 0);
 
-            // Partitions 1 and 2 are expected to stay empty. Since Task 2 of this hardening plan
+            // Partitions 0 and 1 are expected to stay empty. Since Task 2 of this hardening plan
             // removed FetchBatchAsync's old internal per-record timeout in favor of caller-driven
             // cancellation, a no-token fetch against a genuinely empty partition now waits
             // indefinitely instead of returning quickly — an explicit short timeout is required here.
+            using var emptyCts0 = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            var partition0 = await FetchEmptyOrTimeoutAsync(topic, 0, emptyCts0.Token);
             using var emptyCts1 = new CancellationTokenSource(TimeSpan.FromSeconds(3));
             var partition1 = await FetchEmptyOrTimeoutAsync(topic, 1, emptyCts1.Token);
-            using var emptyCts2 = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-            var partition2 = await FetchEmptyOrTimeoutAsync(topic, 2, emptyCts2.Token);
 
-            Assert.Equal(10, partition0.Count);
+            Assert.Equal(10, partition2.Count);
+            Assert.Empty(partition0);
             Assert.Empty(partition1);
-            Assert.Empty(partition2);
         }
         finally
         {

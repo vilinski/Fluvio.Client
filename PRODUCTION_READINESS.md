@@ -4,6 +4,13 @@
 **Version:** 1.0.0-alpha
 **Rust Client Version Compared:** v0.23+ (October 2024)
 
+> **⚠️ Outdated — describes the pre-rewrite architecture.** This assessment predates the FFI rewrite
+> (see `docs/superpowers/specs/2026-09-25-rust-ffi-rewrite-design.md`), which replaced the pure-managed
+> wire-protocol client this document describes with a thin wrapper around the official `fluvio` Rust
+> client via FFI. Features this document marks as shipped — record headers, the Polly-based retry
+> pipeline, circuit breaker, and the custom wire-format encoder — were removed as part of that rewrite
+> and are **not** present in the current client. See `README.md` for the current, accurate feature set.
+
 ---
 
 ## Executive Summary

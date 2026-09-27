@@ -250,5 +250,6 @@ public class BatchFlushIntegrationTests : FluvioIntegrationTestBase
         var all = Task.WhenAll(sendTasks.Append(disposeTask));
         var completed = await Task.WhenAny(all, Task.Delay(TimeSpan.FromSeconds(10)));
         Assert.Same(all, completed); // must not hang
+        await all; // surface any exception gathered inside `all` instead of silently swallowing it
     }
 }
