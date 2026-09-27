@@ -1340,18 +1340,18 @@ git commit -m "fix: stop leaking boxed records on fetch errors, wire IgnoreRackA
 - Consumes: `IntegrationTestConfig`'s `FLUVIO_TEST_PROFILE` env var (from Task 0).
 - Produces: a working GitHub Actions job that runs the integration suite against the real `hetzner-tls` cluster using a `FLUVIO_CONFIG` (or equivalent) GitHub secret, verified end-to-end at least once via `workflow_dispatch` before merging.
 
-- [ ] **Step 1: Read the current draft in full**
+- [x] **Step 1: Read the current draft in full**
 
 ```bash
 git diff .github/workflows/integration-tests.yml
 cat docs/integration-testing.md
 ```
 
-- [ ] **Step 2: Confirm with the user whether the `FLUVIO_CONFIG` secret (or whatever the draft expects) already exists in the GitHub repo**
+- [x] **Step 2: Confirm with the user whether the `FLUVIO_CONFIG` secret (or whatever the draft expects) already exists in the GitHub repo**
 
 This requires the user's own GitHub access — do not attempt to inspect or guess secret names/values yourself. Ask directly: "Does a secret matching what this workflow expects already exist in the repo's Actions secrets? If not, here's exactly what needs to be added: <quote the draft's expected secret name/shape>."
 
-- [ ] **Step 3: Once confirmed, validate the workflow YAML**
+- [x] **Step 3: Once confirmed, validate the workflow YAML**
 
 ```bash
 # If actionlint or a similar tool is available:
@@ -1360,7 +1360,7 @@ which actionlint && actionlint .github/workflows/integration-tests.yml
 python3 -c "import yaml; yaml.safe_load(open('.github/workflows/integration-tests.yml'))" && echo "valid YAML"
 ```
 
-- [ ] **Step 4: Trigger a real run via `workflow_dispatch` and confirm it passes**
+- [x] **Step 4: Trigger a real run via `workflow_dispatch` and confirm it passes**
 
 ```bash
 gh workflow run integration-tests.yml --ref worktree-rust-ffi-rewrite
@@ -1369,9 +1369,9 @@ gh run watch  # or poll `gh run list --workflow=integration-tests.yml`
 
 (Requires the branch to be pushed — confirm with the user before pushing, since this plan's branch hasn't been pushed to `origin` yet.)
 
-- [ ] **Step 5: Fix anything the real CI run surfaces that local testing didn't (e.g. network policy differences, secret formatting)**
+- [x] **Step 5: Fix anything the real CI run surfaces that local testing didn't (e.g. network policy differences, secret formatting)**
 
-- [ ] **Step 6: Delete the now-superseded handoff doc and commit everything**
+- [x] **Step 6: Delete the now-superseded handoff doc and commit everything**
 
 ```bash
 git rm docs/CODEX-HANDOFF-2026-09-26.md
