@@ -853,6 +853,20 @@ git commit -m "fix: correct commit-offset semantics and make StreamAsync resume 
 
 ### Task 5: Record headers, end-to-end
 
+**SUPERSEDED (commits 9fd65e6..3d1233a) — headers were removed, not implemented.** Investigating Step 1
+led to checking the actual `fluvio` 0.50.1 source: `TopicProducerPool::send(key, value)` takes no headers
+parameter, and `ConsumerRecord`/`Record` expose no headers accessor anywhere in the public API (the
+wire-level struct's `headers` field is an unused `i64` placeholder, not a key-value array). The official
+Rust client this entire FFI rewrite wraps has no way to set or read per-record headers at all — the old
+pre-rewrite implementation only had this feature because it spoke the raw wire protocol directly, which
+this rewrite deliberately stopped doing. This is a platform/dependency limitation, not a missing method to
+find, so it was escalated to the user (a product trade-off, not an implementation ruling) rather than
+decided unilaterally. The user chose to remove header support entirely (`ProduceRecord.Headers`,
+`ConsumeRecord.Headers`, `RecordHeaders.cs`, `HeadersIntegrationTests.cs`, the `HeadersExample` project)
+over building a client-side envelope workaround, which would have made records non-interoperable with
+other Fluvio clients/tools. The steps below are left as originally written for the historical record of
+what was planned; none of them were executed as written.
+
 **Files:**
 - Modify: `native/fluvio-dotnet/src/ffi_types.rs` (`FFIRecord` gains a headers field), `producer.rs` (`ffi_producer_send` gains a headers param), `consumer.rs` (materialize headers into `FFIRecord`)
 - Modify: `src/Fluvio.Client/Interop/NativeTypes.cs`/`NativeBuffer.cs`, `Native.cs`
