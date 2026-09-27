@@ -25,11 +25,13 @@ This guide explains how to package and publish the Fluvio.Client library to NuGe
 Update the version in the project files:
 
 **src/Fluvio.Client/Fluvio.Client.csproj:**
+
 ```xml
 <Version>0.1.0</Version>
 ```
 
 **src/Fluvio.Client.Abstractions/Fluvio.Client.Abstractions.csproj:**
+
 ```xml
 <Version>0.1.0</Version>
 ```
@@ -37,6 +39,7 @@ Update the version in the project files:
 ### 2. Update Package Metadata
 
 Edit the `.csproj` files to update:
+
 - `Authors` - Your name
 - `Company` - Your company name
 - `RepositoryUrl` - Your GitHub repository URL
@@ -146,6 +149,7 @@ dotnet add package Fluvio.Client --version 0.1.0-beta
 You can automate publishing with GitHub Actions:
 
 **.github/workflows/publish.yml:**
+
 ```yaml
 name: Publish NuGet Package
 
@@ -192,6 +196,7 @@ jobs:
 ```
 
 Add your NuGet API key as a secret in GitHub:
+
 1. Go to your repository settings
 2. Navigate to **Secrets and variables** → **Actions**
 3. Add a new secret named `NUGET_API_KEY`
@@ -266,12 +271,14 @@ Note: Unlisted packages can still be installed if the exact version is specified
 ### Package Not Appearing
 
 Packages can take a few minutes to appear after publishing. Check:
+
 - The package validation status on nuget.org
 - Your search filters (pre-release, etc.)
 
 ### Push Failed
 
 Common issues:
+
 - Invalid API key
 - Package ID already exists (claimed by another user)
 - Version already published

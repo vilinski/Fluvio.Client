@@ -35,6 +35,7 @@ The Fluvio C# client has **achieved production readiness** for most use cases. A
 ### ✅ **Full Parity (100% Feature Complete)**
 
 #### Producer
+
 - ✅ Single message send with optional key
 - ✅ Batch message send
 - ✅ CRC32C checksum validation
@@ -49,7 +50,6 @@ The Fluvio C# client has **achieved production readiness** for most use cases. A
 
 **Tests:** 100% passing
 **Production Status:** ⭐⭐⭐⭐⭐ **PRODUCTION READY**
-
 
 #### Consumer
 
@@ -133,24 +133,28 @@ The Fluvio C# client has **achieved production readiness** for most use cases. A
 ### Medium Priority (Nice-to-Have)
 
 #### 1. Producer Callbacks
+
 **Rust:** `ProducerCallback` API for async produce completion events
 **C#:** ❌ Not implemented
 **Impact:** LOW - Can track offsets returned from `SendAsync`
 **Workaround:** Use returned offsets + metrics for tracking
 
 #### 2. Producer Configuration Options
+
 **Rust:** `batch_queue_size`, `max_request_size`, `timeout` per-producer
 **C#:** ❌ Not exposed in ProducerOptions
 **Impact:** LOW - Defaults work for most use cases
 **Workaround:** Client-level timeouts apply
 
 #### 3. Consumer Retry Modes
+
 **Rust:** `RetryMode::Disabled`, `TryUntil(n)`, `TryForever`
 **C#:** ❌ Not configurable
 **Impact:** LOW - Circuit breaker handles failures
 **Workaround:** Circuit breaker + retry policies at connection level
 
 #### 4. Admin Watch API
+
 **Rust:** `watch_topics()`, `watch_partitions()`, `watch_spus()` (streaming metadata)
 **C#:** ❌ Not implemented
 **Impact:** LOW - Poll with `ListTopicsAsync` for metadata changes
@@ -159,16 +163,19 @@ The Fluvio C# client has **achieved production readiness** for most use cases. A
 ### Low Priority (Not Needed)
 
 #### 5. Topic Producer Pool
+
 **Rust:** `TopicProducerPool` for reusing producers
 **C#:** ❌ Not needed - lightweight producer creation
 **Impact:** NONE - Producer is lightweight, DI handles lifecycle
 
 #### 6. Mirror Consumer
+
 **Rust:** `mirror` option for consuming from mirror topics
 **C#:** ❌ Not implemented
 **Impact:** NONE - Edge feature, rarely used
 
 #### 7. Platform Version Check
+
 **Rust:** `MINIMUM_PLATFORM_VERSION` check on connect
 **C#:** ❌ Not implemented
 **Impact:** NONE - Protocol compatibility handled at runtime
@@ -178,11 +185,13 @@ The Fluvio C# client has **achieved production readiness** for most use cases. A
 ## ❌ **Removed Features (Intentionally Not Implemented)**
 
 ### Compression (Removed 2025-11-04)
+
 **Reason:** Fundamental incompatibility between .NET and Rust compression libraries
 **Status:** ❌ Will not be implemented unless Fluvio explicitly supports client-side compression
 **Details:** See `COMPRESSION_FORMAT_ANALYSIS.md`
 
 ### Multi-Partition Consumer (Deprecated in Rust v0.21.8)
+
 **Reason:** Deprecated in Rust client, not recommended pattern
 **Recommended:** Use one consumer per partition (already supported)
 **Status:** ❌ Will not be implemented (matches Rust recommendation)
@@ -221,6 +230,7 @@ The Fluvio C# client has **achieved production readiness** for most use cases. A
 ### 🟢 **Low Risk - Production Ready**
 
 **What Works:**
+
 - All core operations (produce, consume, admin)
 - Resilience patterns (retry, circuit breaker, reconnection)
 - Observability (logging, metrics, tracing)
@@ -228,6 +238,7 @@ The Fluvio C# client has **achieved production readiness** for most use cases. A
 - TLS and security
 
 **Minor Gaps:**
+
 - Producer callbacks (low impact - alternatives exist)
 - Admin watch API (low impact - polling works fine)
 - Some advanced config options (defaults work well)
@@ -239,24 +250,29 @@ The Fluvio C# client has **achieved production readiness** for most use cases. A
 ## Recommendations by Use Case
 
 ### ✅ Internal Tools / Development
+
 **Status:** ⭐⭐⭐⭐⭐ **READY**
 
 Perfect for:
+
 - Development and testing environments
 - Internal tools and automation
 - Proof-of-concept applications
 - Learning Fluvio
 
 ### ✅ Production Services
+
 **Status:** ⭐⭐⭐⭐⭐ **READY**
 
 Ready for:
+
 - Production microservices
 - Event-driven architectures
 - Real-time data pipelines
 - High-throughput scenarios
 
 **Checklist:**
+
 - ✅ Configure logging (ILogger)
 - ✅ Enable metrics collection (OpenTelemetry)
 - ✅ Set appropriate timeouts
@@ -264,14 +280,17 @@ Ready for:
 - ✅ Test with real Fluvio cluster
 
 ### ✅ High-Scale Production
+
 **Status:** ⭐⭐⭐⭐ **READY** (with monitoring)
 
 Suitable for:
+
 - High-volume message processing
 - Multi-tenant systems
 - Mission-critical applications
 
 **Requirements:**
+
 - ✅ Comprehensive monitoring (logs, metrics, traces)
 - ✅ Load testing to tune timeouts/thresholds
 - ✅ Proper resource limits (connection pooling handled automatically)
@@ -300,6 +319,7 @@ Suitable for:
 ## What Works Today
 
 ### Core Functionality
+
 ✅ Produce messages (single/batch, with keys, headers, SmartModules)
 ✅ Consume messages (streaming, batch, offset management, SmartModules)
 ✅ Admin operations (create, delete, list topics)
@@ -309,18 +329,21 @@ Suitable for:
 ✅ Delivery semantics (AtMostOnce, AtLeastOnce)
 
 ### Resilience
+
 ✅ Exponential backoff retry
 ✅ Circuit breaker
 ✅ Automatic reconnection
 ✅ Graceful error handling
 
 ### Observability
+
 ✅ Structured logging (ILogger)
 ✅ Metrics (OpenTelemetry)
 ✅ Distributed tracing (ActivitySource)
 ✅ W3C Trace Context propagation
 
 ### Modern .NET
+
 ✅ ReadExactlyAsync for robust IO
 ✅ TimeProvider for testability
 ✅ BinaryPrimitives for performance
@@ -363,6 +386,7 @@ Suitable for:
 ### Nice-to-Have (Future Enhancements)
 
 #### 8. **SmartModule Support**
+
 **Priority:** 🔵 **LOW**
 
 **Current:** Basic StreamFetch (version 10)
@@ -373,6 +397,7 @@ Suitable for:
 ---
 
 #### 9. **Multi-Partition Consumption**
+
 **Priority:** 🔵 **LOW**
 
 **Current:** Single partition per consumer
@@ -383,9 +408,11 @@ Suitable for:
 ---
 
 #### 10. **TLS/Security**
+
 **Priority:** 🟡 **HIGH** (for cloud deployments)
 
 **Current:**
+
 - ✅ Code structure supports TLS (UseTls flag)
 - ❌ Not tested
 - ❌ No certificate validation options
@@ -395,9 +422,10 @@ Suitable for:
 
 ---
 
-## Production Readiness Checklist
+## Production Readiness Checklist (Appendix)
 
 ### Minimum Viable Production (MVP)
+
 To use this client in production for basic workloads:
 
 - [ ] **Implement retry logic** (Critical - 2 days)
@@ -411,6 +439,7 @@ To use this client in production for basic workloads:
 ---
 
 ### Full Production Ready
+
 For high-scale production deployments:
 
 - [ ] All MVP items above
@@ -426,19 +455,22 @@ For high-scale production deployments:
 
 ---
 
-## Current Risk Assessment
+## Current Risk Assessment (Appendix)
 
 ### 🔴 **High Risk**
+
 - **No retry logic:** Transient failures will crash applications
 - **No logging:** Impossible to debug production issues
 - **Hard-coded timeouts:** May not suit all workloads
 
 ### 🟡 **Medium Risk**
+
 - **Connection handling:** May leak connections under high load
 - **Streaming implementation:** Not efficient for high-throughput
 - **No metrics:** Can't monitor health or performance
 
 ### 🟢 **Low Risk**
+
 - **Core protocol:** Well-tested and solid
 - **Basic operations:** Producer/Consumer work correctly
 - **Error handling:** Proper exception types defined
@@ -448,15 +480,18 @@ For high-scale production deployments:
 ## Recommendations
 
 ### For **Internal Tools / Development**
+
 **Status:** ✅ **READY NOW**
 
 The current implementation is sufficient for:
+
 - Development and testing environments
 - Low-volume internal tools
 - Proof-of-concept applications
 - Learning Fluvio
 
 **What to do:**
+
 1. Add basic logging (Console.WriteLine is fine for dev)
 2. Catch and log TaskCanceledException
 3. Use it!
@@ -464,15 +499,18 @@ The current implementation is sufficient for:
 ---
 
 ### For **Production Services**
+
 **Status:** ⚠️ **5-6 Days of Work Needed**
 
 **Must implement first:**
+
 1. Retry logic with exponential backoff
 2. ILogger integration
 3. Configuration validation
 4. Document limitations
 
 **Timeline:**
+
 - Week 1: MVP items (5-6 days)
 - Test in staging for 1-2 weeks
 - Deploy to production with monitoring
@@ -480,9 +518,11 @@ The current implementation is sufficient for:
 ---
 
 ### For **High-Scale Production**
+
 **Status:** ⚠️ **3-4 Weeks of Work Needed**
 
 **Full roadmap:**
+
 1. MVP items (1 week)
 2. True streaming + metrics (1 week)
 3. Performance optimization (1 week)
@@ -490,11 +530,12 @@ The current implementation is sufficient for:
 
 ---
 
-## What Works Today
+## What Works Today (Appendix)
 
 Despite the gaps, **the core implementation is solid**:
 
 ✅ **You can:**
+
 - Produce messages to Fluvio topics
 - Consume messages from topics
 - Create and delete topics
@@ -503,6 +544,7 @@ Despite the gaps, **the core implementation is solid**:
 - Run multiple concurrent clients (with caveats)
 
 ✅ **Code quality:**
+
 - Clean architecture (Abstractions + Implementation)
 - Proper async/await
 - Memory-efficient binary protocol
@@ -510,22 +552,26 @@ Despite the gaps, **the core implementation is solid**:
 - Good error handling structure
 
 ✅ **Test coverage:**
+
 - Protocol layer: 100% tested
 - Integration tests: Comprehensive (just infrastructure-limited)
 
 ---
 
-## Bottom Line
+## Bottom Line (Appendix)
 
 **Can you use it in production today?**
+
 - **For low-volume, non-critical workloads:** Yes, with basic logging added
 - **For critical production services:** No, needs retry logic + observability
 - **For high-scale systems:** No, needs full production hardening
 
 **Is the implementation correct?**
+
 - **YES!** The code works. Test failures are infrastructure issues, not bugs.
 
 **What's the fastest path to production?**
+
 1. Add retry logic (2 days)
 2. Add ILogger (1 day)
 3. Document limitations (1 day)

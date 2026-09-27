@@ -34,11 +34,13 @@
 ## File Structure
 
 **New:**
+
 - `native/fluvio-dotnet/src/cancel.rs` — shared cancellation-token FFI type (`CancelHandle`, `ffi_cancel_new`/`ffi_cancel_trigger`/`ffi_cancel_drop`) used by every non-streaming async call.
 - `src/Fluvio.Client/Interop/CancellationBridge.cs` — C# side: wraps a `CancellationToken` into a native `CancelHandle` + registration, used by every call site that currently ignores its token.
 - `tests/Fluvio.Client.Tests/Integration/ProducerPartitionerIntegrationTests.cs` — new, bounded tests replacing the two hanging partitioner tests (moved out of `ProducerIntegrationTests.cs` per Task 9's split).
 
 **Modified:**
+
 - `native/fluvio-dotnet/src/tcb.rs` — panic boundary (Task 1).
 - `native/fluvio-dotnet/src/{client,producer,consumer,admin}.rs` — cancellation wiring (Task 2), headers (Task 5), partitioner (Task 6), offset fixes (Task 3, Task 4), leak fixes (Task 10).
 - `src/Fluvio.Client/Interop/Native.cs`, `Callbacks.cs` — cancellation plumbing signatures.
@@ -52,6 +54,7 @@
 - `tests/Fluvio.Client.Tests/Integration/ProducerIntegrationTests.cs`, `BatchFlushIntegrationTests.cs` — bounded-stream fixes, dispose-race regression test (Task 9, Task 7).
 
 **Adopted as-is (already done, uncommitted, in the worktree — Task 0 commits them):**
+
 - `native/fluvio-dotnet/src/client.rs`, `src/Fluvio.Client/FluvioClient.cs`, `src/Fluvio.Client.Abstractions/IFluvioClient.cs` (connect docs), `tests/Fluvio.Client.Tests/Integration/{AdminBasicTest,ConnectionIntegrationTests,FluvioIntegrationTestBase}.cs`, `tests/Fluvio.Client.Tests/Integration/IntegrationTestConfig.cs` (new file).
 
 ---
@@ -59,10 +62,12 @@
 ### Task 0: Adopt and commit the in-progress connect/profile-resolution changes
 
 **Files:**
+
 - Review/keep as-is: `native/fluvio-dotnet/src/client.rs`, `src/Fluvio.Client/FluvioClient.cs`, `src/Fluvio.Client.Abstractions/IFluvioClient.cs`, `tests/Fluvio.Client.Tests/Integration/{AdminBasicTest,ConnectionIntegrationTests,FluvioIntegrationTestBase,IntegrationTestConfig}.cs`
 - Do NOT adopt yet (park separately, see Task 11): `.github/workflows/integration-tests.yml` (draft, unverified secret), `docs/integration-testing.md`, `docs/CODEX-HANDOFF-2026-09-26.md`
 
 **Interfaces:**
+
 - Produces: `ffi_client_connect`'s JSON now accepts `{ endpoint?, profile?, clientId?, useTls? }` and resolves a real named/current Fluvio profile (preserving TLS cert config) when `profile` is given or all fields are omitted; `FluvioNativeConfig.ToJson(FluvioClientOptions)` (replacing the old 2-arg `ToJson(string, bool)`); `IntegrationTestConfig` exposing however it resolves `FLUVIO_TEST_PROFILE` (read the file to confirm its exact public surface before writing Task 11, which depends on it).
 - Consumed by: every later task's integration tests connect via whatever `FluvioIntegrationTestBase.InitializeAsync` now does — read it to confirm before writing new tests.
 
@@ -89,6 +94,7 @@ Expected: 0 warnings, 0 errors, 72 passed.
 fluvio profile switch local
 FLUVIO_TEST_PROFILE=local dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~ConnectionIntegrationTests|FullyQualifiedName~AdminBasicTest" --configuration Release
 ```
+
 Expected: all pass (per the handoff note, these already passed under Codex).
 
 - [x] **Step 4: Run the same tests against `hetzner-tls`**
@@ -96,6 +102,7 @@ Expected: all pass (per the handoff note, these already passed under Codex).
 ```bash
 FLUVIO_TEST_PROFILE=hetzner-tls dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~ConnectionIntegrationTests|FullyQualifiedName~AdminBasicTest" --configuration Release
 ```
+
 Expected: all pass, proving TLS + client-cert connect actually works end-to-end against the real Hetzner cluster.
 
 - [x] **Step 5: Commit**
@@ -112,11 +119,13 @@ Leave `.github/workflows/integration-tests.yml`, `docs/integration-testing.md`, 
 ### Task 1: Panic boundary + exactly-once TCB completion
 
 **Files:**
+
 - Modify: `native/fluvio-dotnet/src/tcb.rs`
 - Modify: `native/fluvio-dotnet/src/{client,producer,consumer,admin}.rs` (wrap every `runtime().spawn(async move { ... })` body)
 - Test: `native/fluvio-dotnet/src/tcb.rs` (unit test), plus one C#-visible regression test
 
 **Interfaces:**
+
 - Consumes: existing `Tcb`, `complete_success`, `complete_error` from Task 1 of the original plan.
 - Produces: `pub fn spawn_guarded<F>(tcb: Tcb, fut: F) where F: std::future::Future<Output = ()> + Send + 'static` — every call site in `client.rs`/`producer.rs`/`consumer.rs`/`admin.rs` replaces `crate::runtime::runtime().spawn(async move { <body> })` with `crate::tcb::spawn_guarded(tcb, async move { <body> })`, where `<body>` no longer takes `tcb` as a captured variable for completion (it still uses it to call `complete_success`/`complete_error` itself on the happy path; `spawn_guarded` only catches the panic case).
 - Consumed by: nothing further changes at call sites beyond the wrap — this task touches every `.rs` file but only mechanically.
@@ -203,18 +212,23 @@ Expected: PASS.
 - [x] **Step 5: Replace every `runtime().spawn(async move { ... })` with `spawn_guarded`**
 
 In each of `client.rs`, `producer.rs`, `consumer.rs`, `admin.rs`: change
+
 ```rust
 crate::runtime::runtime().spawn(async move { <body> });
 ```
+
 to
+
 ```rust
 crate::tcb::spawn_guarded(tcb, async move { <body> });
 ```
+
 The `<body>` itself is unchanged — it still owns calling `complete_success`/`complete_error` on every normal path; `spawn_guarded` only adds the panic-time fallback. This is a mechanical find-and-replace across all ~22 entry points; verify none was missed:
 
 ```bash
 grep -rn "runtime::runtime().spawn(async move" native/fluvio-dotnet/src/
 ```
+
 Expected: no output (every spawn site now goes through `spawn_guarded`).
 
 - [x] **Step 6: Add a C#-visible regression test proving a real panic doesn't hang**
@@ -274,6 +288,7 @@ git commit -m "fix: add panic boundary so a native task panic faults the C# Task
 ### Task 2: Wire cancellation through every non-streaming FFI call
 
 **Files:**
+
 - Create: `native/fluvio-dotnet/src/cancel.rs`
 - Modify: `native/fluvio-dotnet/src/lib.rs`, `client.rs`, `producer.rs`, `consumer.rs`, `admin.rs` (every non-streaming `extern "C" fn` gains a trailing `cancel: *mut c_void` param before `tcb: Tcb`)
 - Create: `src/Fluvio.Client/Interop/CancellationBridge.cs`
@@ -282,6 +297,7 @@ git commit -m "fix: add panic boundary so a native task panic faults the C# Task
 - Test: `tests/Fluvio.Client.Tests/Integration/ConsumerIntegrationTests.cs` (existing `FetchBatchAsync_EmptyTopic_BlocksUntilTimeout`, now should genuinely pass), plus new cancellation tests for producer/admin
 
 **Interfaces:**
+
 - Produces (Rust): `cancel::CancelHandle` (`Arc<Notify>` wrapper); `#[no_mangle] extern "C" fn ffi_cancel_new() -> *mut c_void`; `extern "C" fn ffi_cancel_trigger(handle: *mut c_void)`; `extern "C" fn ffi_cancel_drop(handle: *mut c_void)`; a helper `pub async fn race<T>(cancel: *mut c_void, fut: impl Future<Output = T>) -> Result<T, Cancelled>` that every call site's body wraps its work in via `tokio::select!` against the handle's `Notify`.
 - Produces (C#): `CancellationBridge.Register(nint nativeCancelHandlePtr, CancellationToken ct) -> IDisposable` (registers `ct.Register` to call `ffi_cancel_trigger`, returns a disposable that also frees the handle); every call site does: `var (cancelPtr, registration) = CancellationBridge.Create(ct); using (registration) { ... invoke native with cancelPtr ... }`.
 - Consumed by: this is the shared primitive Task 6's producer-timeout fix and Task 9's `FetchBatchAsync_EmptyTopic_BlocksUntilTimeout` fix both build on.
@@ -541,6 +557,7 @@ dotnet build Fluvio.Client.sln --configuration Release /p:TreatWarningsAsErrors=
 FLUVIO_TEST_PROFILE=local dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~Integration" --configuration Release
 FLUVIO_TEST_PROFILE=hetzner-tls dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~Integration" --configuration Release
 ```
+
 Expected: cancellation-related tests pass on both; note (don't fix yet — later tasks own these) any remaining failures from headers/partitioner/offset issues.
 
 - [x] **Step 9: Commit**
@@ -576,10 +593,12 @@ a future plan revision.
 ### Task 3: Producer send/flush timeout (30s, matching prior documented behavior)
 
 **Files:**
+
 - Modify: `src/Fluvio.Client/Producer/FluvioProducer.cs`
 - Test: `tests/Fluvio.Client.Tests/Producer/ProducerTimeoutTests.cs` (new, unit-level — no cluster needed, uses a cancellation-respecting fake)
 
 **Interfaces:**
+
 - Consumes: Task 2's `CancellationBridge`/cancellation wiring on `ProducerSend`/`ProducerFlush`.
 - Produces: `FluvioProducer` internally links any caller-supplied `CancellationToken` with a 30-second timeout via `CancellationTokenSource.CreateLinkedTokenSource` before calling into native, for both `SendAsync` and `FlushAsync`.
 
@@ -729,11 +748,13 @@ in a future plan revision; does not reproduce against `hetzner-tls` in the runs 
 ### Task 4: Fix `CommitOffsetAsync` semantics and `StreamAsync` stored-offset resume
 
 **Files:**
+
 - Modify: `native/fluvio-dotnet/src/consumer.rs` (`ffi_consumer_commit_offset`)
 - Modify: `src/Fluvio.Client/Consumer/FluvioConsumer.cs` (`StreamAsync`)
 - Test: `tests/Fluvio.Client.Tests/Integration/ConsumerIntegrationTests.cs`
 
 **Interfaces:**
+
 - Consumes: `ffi_consumer_fetch_last_offset`/`FetchLastOffsetAsync` (already exists from the original Task 4).
 - Produces: `ffi_consumer_commit_offset` no longer requires a record to exist at the committed offset; `FluvioConsumer.StreamAsync` calls `FetchLastOffsetAsync` first when `_options.OffsetReset` is `StoredOrEarliest`/`StoredOrLatest` and a consumer group is configured, passing the real stored offset into `OffsetResolver.ResolveStartOffset` instead of `null`.
 
@@ -868,12 +889,14 @@ other Fluvio clients/tools. The steps below are left as originally written for t
 what was planned; none of them were executed as written.
 
 **Files:**
+
 - Modify: `native/fluvio-dotnet/src/ffi_types.rs` (`FFIRecord` gains a headers field), `producer.rs` (`ffi_producer_send` gains a headers param), `consumer.rs` (materialize headers into `FFIRecord`)
 - Modify: `src/Fluvio.Client/Interop/NativeTypes.cs`/`NativeBuffer.cs`, `Native.cs`
 - Modify: `src/Fluvio.Client/Producer/FluvioProducer.cs`, `src/Fluvio.Client/Consumer/FluvioConsumer.cs`
 - Test: `tests/Fluvio.Client.Tests/Integration/HeadersIntegrationTests.cs` (existing — should now genuinely pass)
 
 **Interfaces:**
+
 - Produces (Rust): headers cross the FFI boundary as a JSON string (`FFIString`) — `{"key1":"base64value1","key2":"base64value2"}` — appended as an extra param to `ffi_producer_send` (nullable/empty = no headers) and an extra `headers: FFIString` field on `FFIRecord` (empty string = no headers, distinct from a present-but-empty JSON object `{}`).
 - Produces (C#): `FluvioProducer.SendAsync`/`SendBatchAsync` serialize `ProduceRecord.Headers` (`IReadOnlyDictionary<string, ReadOnlyMemory<byte>>?`) to that JSON shape before the native call; `FluvioConsumer`'s record materialization deserializes `FFIRecord.headers` back into `ConsumeRecord.Headers`.
 
@@ -976,11 +999,13 @@ git commit -m "feat: implement record headers end-to-end over the FFI boundary"
 ### Task 6: Custom partitioner support in the producer
 
 **Files:**
+
 - Modify: `src/Fluvio.Client/Producer/FluvioProducer.cs` (compute target partition via `IPartitioner` in C#, pass explicit partition to native)
 - Modify: `native/fluvio-dotnet/src/producer.rs` (`ffi_producer_send` gains a `partition: i32` param, `-1` = let the server/default partitioner choose)
 - Test: `tests/Fluvio.Client.Tests/Integration/ProducerPartitionerIntegrationTests.cs` (new — see Task 9 for the test split)
 
 **Interfaces:**
+
 - Consumes: `IPartitioner.SelectPartition`, `PartitionerConfig` (unchanged, from `Fluvio.Client.Abstractions`); `ProducerOptions.Partitioner`.
 - Produces: `FluvioProducer` calls `_options.Partitioner?.SelectPartition(...)` when set (falling back to the existing `SiphashRoundRobinPartitioner` default per current behavior) to compute an explicit partition index BEFORE calling native `ffi_producer_send`, which now sends directly to that partition.
 
@@ -1057,10 +1082,12 @@ git commit -m "feat: honor IPartitioner/ProducerOptions.Partitioner by sending t
 ### Task 7: Fix the producer create/dispose race
 
 **Files:**
+
 - Modify: `src/Fluvio.Client/Producer/FluvioProducer.cs`
 - Test: `tests/Fluvio.Client.Tests/Integration/BatchFlushIntegrationTests.cs`
 
 **Interfaces:**
+
 - Consumes: nothing new.
 - Produces: `FluvioProducer` tracks in-flight handle-creation `Task`s (not just completed handles) so `DisposeAsync`/`FlushAsync` can await any creation still in progress before acting, and marks itself "sealed" atomically so a creation that races a concurrent `Dispose` either completes and is immediately disposed, or is rejected before starting — never leaves a handle created-but-untracked.
 
@@ -1129,12 +1156,14 @@ git commit -m "fix: eliminate producer create/dispose race on concurrent SendAsy
 ### Task 8: Remove dead resilience options and fix typed-exception usage
 
 **Files:**
+
 - Modify: `src/Fluvio.Client.Abstractions/IFluvioClient.cs` (remove `EnableCircuitBreaker`, `MaxRetries`, `RetryBaseDelay`, `CircuitBreakerFailureThreshold`, `CircuitBreakerDuration`, `EnableAutoReconnect`, `MaxReconnectAttempts`, `ReconnectDelay` from `FluvioClientOptions`)
 - Modify: `src/Fluvio.Client/FluvioException.cs` (remove `IncompatiblePlatformVersionException`)
 - Modify: `tests/Fluvio.Client.Tests/PlatformVersionTests.cs` (remove or repurpose — see Step 3)
 - Modify: `examples/ProducerExample/Program.cs`, `examples/StreamingConsumerExample/Program.cs` (catch typed exceptions instead of message substrings)
 
 **Interfaces:**
+
 - Produces: `FluvioClientOptions` no longer has resilience knobs that silently do nothing (per spec §9: "resilience moves to the Rust client / connection layer; no equivalent wrapper is kept at the C# level" — this task makes that decision visible in the API instead of leaving dead fields). `FluvioException`'s hierarchy (`FluvioConnectionException`, `TopicNotFoundException`, `TopicAlreadyExistsException`) is what callers should catch, not `IncompatiblePlatformVersionException` (removed) or message substrings.
 
 - [x] **Step 1: Grep for every usage of the fields being removed**
@@ -1142,6 +1171,7 @@ git commit -m "fix: eliminate producer create/dispose race on concurrent SendAsy
 ```bash
 grep -rn "EnableCircuitBreaker\|MaxRetries\|RetryBaseDelay\|CircuitBreakerFailureThreshold\|CircuitBreakerDuration\|EnableAutoReconnect\|MaxReconnectAttempts\|ReconnectDelay\|IncompatiblePlatformVersionException" src/ tests/ examples/ --include="*.cs"
 ```
+
 Confirm every hit is either the definition itself or a place this task will update.
 
 - [x] **Step 2: Remove the dead options from `FluvioClientOptions`**
@@ -1171,7 +1201,7 @@ Apply the same pattern to `examples/StreamingConsumerExample/Program.cs`'s equiv
 - [x] **Step 6: Build and run all examples to confirm they still work**
 
 Run: `dotnet build Fluvio.Client.sln --configuration Release`
-Run each example against `local` manually (e.g. `dotnet run --project examples/ProducerExample -- ` with `FLUVIO_TEST_PROFILE`-equivalent env var or whatever config the example reads) and confirm the "topic already exists" path is hit and handled gracefully on a second run.
+Run each example against `local` manually (e.g. `dotnet run --project examples/ProducerExample --` with `FLUVIO_TEST_PROFILE`-equivalent env var or whatever config the example reads) and confirm the "topic already exists" path is hit and handled gracefully on a second run.
 
 - [x] **Step 7: Full unit test run**
 
@@ -1190,10 +1220,12 @@ git commit -m "fix: remove dead resilience options and use typed exceptions inst
 ### Task 9: Fix the two hanging partitioner tests and split them out
 
 **Files:**
+
 - Modify: `tests/Fluvio.Client.Tests/Integration/ProducerIntegrationTests.cs` (remove the two hanging tests, per the handoff note's diagnosis)
 - Modify: `tests/Fluvio.Client.Tests/Integration/ProducerPartitionerIntegrationTests.cs` (created in Task 6 — confirm it already covers the intent of the removed tests; add any missing case, e.g. `SendAsync_SameKey_GoesToSamePartition`)
 
 **Interfaces:**
+
 - Consumes: Task 6's explicit-partition send.
 - Produces: no more tests that enumerate an infinite `StreamAsync` without a cancellation bound.
 
@@ -1202,6 +1234,7 @@ git commit -m "fix: remove dead resilience options and use typed exceptions inst
 ```bash
 grep -n "SendAsync_WithSpecificPartitioner_AllRecordsGoToSamePartition\|SendAsync_SameKey_GoesToSamePartition" tests/Fluvio.Client.Tests/Integration/ProducerIntegrationTests.cs
 ```
+
 Read their full bodies to understand exactly what they were trying to prove.
 
 - [x] **Step 2: Confirm `ProducerPartitionerIntegrationTests.cs` (Task 6) already proves the specific-partitioner case; add the same-key case if missing**
@@ -1234,6 +1267,7 @@ public async Task SendAsync_SameKey_AlwaysGoesToSamePartition()
 ```bash
 git rm --cached /dev/null 2>/dev/null || true  # no-op guard; actually edit the file to remove the two test methods
 ```
+
 Edit `ProducerIntegrationTests.cs` directly to delete `SendAsync_WithSpecificPartitioner_AllRecordsGoToSamePartition` and `SendAsync_SameKey_GoesToSamePartition` in full (method + attributes), since their intent now lives in `ProducerPartitionerIntegrationTests.cs` with bounded, non-hanging assertions.
 
 - [x] **Step 4: Run the full producer + partitioner integration suite with a hard timeout to prove no more hangs**
@@ -1241,6 +1275,7 @@ Edit `ProducerIntegrationTests.cs` directly to delete `SendAsync_WithSpecificPar
 ```bash
 timeout 60 dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~ProducerIntegrationTests|FullyQualifiedName~ProducerPartitionerIntegrationTests" --configuration Release
 ```
+
 Expected: completes well within 60s (previously hung indefinitely).
 
 - [x] **Step 5: Run against `hetzner-tls`**
@@ -1248,6 +1283,7 @@ Expected: completes well within 60s (previously hung indefinitely).
 ```bash
 FLUVIO_TEST_PROFILE=hetzner-tls timeout 60 dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~ProducerIntegrationTests|FullyQualifiedName~ProducerPartitionerIntegrationTests" --configuration Release
 ```
+
 Expected: same.
 
 - [x] **Step 6: Commit**
@@ -1262,12 +1298,14 @@ git commit -m "test: replace hanging unbounded-stream partitioner tests with bou
 ### Task 10: Fix remaining review-finding leftovers (allocation leaks, `IgnoreRackAssignment`)
 
 **Files:**
+
 - Modify: `native/fluvio-dotnet/src/consumer.rs` (`ffi_consumer_fetch_batch`, `ffi_stream_next` — free partially-accumulated records on an error/cancellation path instead of leaking)
 - Modify: `src/Fluvio.Client/Admin/FluvioAdmin.cs` (`BuildTopicSpecJson` includes `IgnoreRackAssignment`)
 - Modify: `native/fluvio-dotnet/src/admin.rs` (`ffi_admin_create_topic` reads and applies it instead of hardcoding `None`)
 - Test: `tests/Fluvio.Client.Tests/Integration/AdminIntegrationTests.cs`
 
 **Interfaces:**
+
 - Consumes: nothing new.
 - Produces: no change to any public signature — pure bug fixes.
 
@@ -1281,6 +1319,7 @@ for ptr in out.drain(..) {
     unsafe { crate::ffi_types::ffi_record_free(ptr) };
 }
 ```
+
 Apply the same pattern anywhere else records are boxed before a possible later failure in the same function (check `ffi_stream_next` too, though it boxes only one record at a time so the leak surface there is narrower — confirm and fix if present).
 
 - [x] **Step 2: Write a regression test for `IgnoreRackAssignment`**
@@ -1312,6 +1351,7 @@ writer.WriteBoolean("ignoreRackAssignment", spec.IgnoreRackAssignment);
 let ignore_rack: bool = spec_value["ignoreRackAssignment"].as_bool().unwrap_or(false);
 let spec = TopicSpec::new_computed(partitions, replication, if ignore_rack { Some(true) } else { None });
 ```
+
 (Adjust to whatever `TopicSpec::new_computed`'s actual third-parameter semantics are, per the original Task 6's own note that this needed checking against `cargo doc`.)
 
 - [x] **Step 4: Run tests**
@@ -1332,11 +1372,13 @@ git commit -m "fix: stop leaking boxed records on fetch errors, wire IgnoreRackA
 ### Task 11: Finalize CI against `hetzner-tls`
 
 **Files:**
+
 - Modify: `.github/workflows/integration-tests.yml` (adopt/finalize Codex's draft)
 - Modify: `docs/integration-testing.md` (adopt/finalize)
 - Delete: `docs/CODEX-HANDOFF-2026-09-26.md` (superseded by this plan and its commits — historical value only, not meant to stay in the tree)
 
 **Interfaces:**
+
 - Consumes: `IntegrationTestConfig`'s `FLUVIO_TEST_PROFILE` env var (from Task 0).
 - Produces: a working GitHub Actions job that runs the integration suite against the real `hetzner-tls` cluster using a `FLUVIO_CONFIG` (or equivalent) GitHub secret, verified end-to-end at least once via `workflow_dispatch` before merging.
 

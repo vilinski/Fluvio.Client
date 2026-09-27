@@ -93,8 +93,8 @@ hand-written and must be kept in sync manually with the Rust `extern "C"` signat
 
 `ConsumerOptions` (`src/Fluvio.Client.Abstractions/IFluvioClient.cs`) controls offset behavior via
 `OffsetReset` (`Earliest`/`Latest`/`StoredOrEarliest`/`StoredOrLatest`), `ConsumerGroup`,
-`AutoCommit`, and `AutoCommitInterval` - not a `ConsumerId`/`Manual`/`Auto` strategy enum. A
-`ConsumerGroup` is required to persist/resume offsets across runs.
+`AutoCommit`, and `AutoCommitInterval`. A `ConsumerGroup` is required to persist/resume offsets
+across runs.
 
 ## Key Technical Constraints
 
