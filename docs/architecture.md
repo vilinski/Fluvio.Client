@@ -101,4 +101,4 @@ call is a single native async round-trip, not a polling loop.
 3. The .NET runtime's own default resolution — for a packaged NuGet consumer, this finds the
    bundled `runtimes/{rid}/native/` asset.
 
-See the root `CLAUDE.md` for build commands and `docs/getting-started.md` for usage.
+See the root `AGENTS.md` for build commands and `docs/getting-started.md` for usage.

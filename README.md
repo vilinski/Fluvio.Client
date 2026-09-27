@@ -74,6 +74,9 @@ dotnet test --filter "FullyQualifiedName~Integration"
 cd benchmarks/Fluvio.Client.Benchmarks && dotnet run -c Release
 ```
 
+See [AGENTS.md](AGENTS.md) for a fuller build/test/architecture reference, common gotchas, and
+known gaps.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit issues or pull requests.
