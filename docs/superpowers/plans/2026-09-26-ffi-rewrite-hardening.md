@@ -1197,14 +1197,14 @@ git commit -m "fix: remove dead resilience options and use typed exceptions inst
 - Consumes: Task 6's explicit-partition send.
 - Produces: no more tests that enumerate an infinite `StreamAsync` without a cancellation bound.
 
-- [ ] **Step 1: Locate and read the two hanging tests in full**
+- [x] **Step 1: Locate and read the two hanging tests in full**
 
 ```bash
 grep -n "SendAsync_WithSpecificPartitioner_AllRecordsGoToSamePartition\|SendAsync_SameKey_GoesToSamePartition" tests/Fluvio.Client.Tests/Integration/ProducerIntegrationTests.cs
 ```
 Read their full bodies to understand exactly what they were trying to prove.
 
-- [ ] **Step 2: Confirm `ProducerPartitionerIntegrationTests.cs` (Task 6) already proves the specific-partitioner case; add the same-key case if missing**
+- [x] **Step 2: Confirm `ProducerPartitionerIntegrationTests.cs` (Task 6) already proves the specific-partitioner case; add the same-key case if missing**
 
 ```csharp
 // tests/Fluvio.Client.Tests/Integration/ProducerPartitionerIntegrationTests.cs — add if not covered
@@ -1229,28 +1229,28 @@ public async Task SendAsync_SameKey_AlwaysGoesToSamePartition()
 }
 ```
 
-- [ ] **Step 3: Delete the two hanging tests from `ProducerIntegrationTests.cs`**
+- [x] **Step 3: Delete the two hanging tests from `ProducerIntegrationTests.cs`**
 
 ```bash
 git rm --cached /dev/null 2>/dev/null || true  # no-op guard; actually edit the file to remove the two test methods
 ```
 Edit `ProducerIntegrationTests.cs` directly to delete `SendAsync_WithSpecificPartitioner_AllRecordsGoToSamePartition` and `SendAsync_SameKey_GoesToSamePartition` in full (method + attributes), since their intent now lives in `ProducerPartitionerIntegrationTests.cs` with bounded, non-hanging assertions.
 
-- [ ] **Step 4: Run the full producer + partitioner integration suite with a hard timeout to prove no more hangs**
+- [x] **Step 4: Run the full producer + partitioner integration suite with a hard timeout to prove no more hangs**
 
 ```bash
 timeout 60 dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~ProducerIntegrationTests|FullyQualifiedName~ProducerPartitionerIntegrationTests" --configuration Release
 ```
 Expected: completes well within 60s (previously hung indefinitely).
 
-- [ ] **Step 5: Run against `hetzner-tls`**
+- [x] **Step 5: Run against `hetzner-tls`**
 
 ```bash
 FLUVIO_TEST_PROFILE=hetzner-tls timeout 60 dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~ProducerIntegrationTests|FullyQualifiedName~ProducerPartitionerIntegrationTests" --configuration Release
 ```
 Expected: same.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add tests/Fluvio.Client.Tests/Integration/ProducerIntegrationTests.cs tests/Fluvio.Client.Tests/Integration/ProducerPartitionerIntegrationTests.cs
