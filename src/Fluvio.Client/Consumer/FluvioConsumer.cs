@@ -48,7 +48,27 @@ internal sealed class FluvioConsumer : IFluvioConsumer
         long? offset = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var startOffset = offset ?? OffsetResolver.ResolveStartOffset(null, _options.OffsetReset);
+        long? storedOffset = null;
+        // Deliberately NOT OffsetResolver.GetConsumerId(_options.ConsumerGroup): that helper appends a
+        // random per-call instance suffix, which would make every StreamAsync call resolve to a
+        // different consumer identity and never find a previously committed offset. Offset persistence
+        // needs a deterministic identity shared across resumed sessions, so the consumer group name
+        // itself is used directly (matching how a Kafka-style consumer group shares one committed
+        // offset per topic/partition across its members, rather than per instance).
+        var consumerId = string.IsNullOrEmpty(_options.ConsumerGroup) ? null : _options.ConsumerGroup;
+        if (offset is null && consumerId is not null &&
+            _options.OffsetReset is OffsetResetStrategy.StoredOrEarliest or OffsetResetStrategy.StoredOrLatest)
+        {
+            try
+            {
+                storedOffset = await FetchLastOffsetAsync(consumerId, topic, partition, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Failed to fetch stored offset for {ConsumerId}/{Topic}:{Partition}, falling back to reset strategy", consumerId, topic, partition);
+            }
+        }
+        var startOffset = offset ?? OffsetResolver.ResolveStartOffset(storedOffset, _options.OffsetReset);
         var topicBytes = Encoding.UTF8.GetBytes(topic);
 
         var streamPtr = await _clientHandle.RunAsyncWithIncrement(async h =>

@@ -340,4 +340,76 @@ public class ConsumerIntegrationTests : FluvioIntegrationTestBase
             await CleanupTopicAsync(topicName);
         }
     }
+
+    [Fact]
+    public async Task CommitOffsetAsync_AtProducedOffset_RoundTripsThroughFetchLastOffset()
+    {
+        // Fluvio's only offset-commit mechanism (ConsumerStream::offset_commit()) commits based on
+        // stream READ POSITION, not an arbitrary value — there is no API to persist a commit for an
+        // offset with no record there yet (confirmed against the fluvio 0.50.1 source: offset_commit
+        // commits whatever the stream has most recently read via .next()). So "commit" here means
+        // "the offset of the last record I actually consumed", matching OffsetResolver.ResolveStartOffset's
+        // existing `storedOffset + 1` resume convention. Commit at a real, already-produced offset.
+        var topic = await CreateTestTopicAsync();
+        try
+        {
+            var producer = Client!.Producer();
+            var offset = await producer.SendAsync(topic, new byte[] { 1 });
+            await producer.FlushAsync();
+
+            var consumer = Client!.Consumer();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await consumer.CommitOffsetAsync("test-consumer", topic, 0, offset, cts.Token);
+
+            var stored = await consumer.FetchLastOffsetAsync("test-consumer", topic, 0, cts.Token);
+            Assert.Equal(offset, stored);
+        }
+        finally
+        {
+            await CleanupTopicAsync(topic);
+        }
+    }
+
+    [Fact]
+    public async Task StreamAsync_ResumesFromStoredOffset_WaitsForNewRecordsInsteadOfReplaying()
+    {
+        var topic = await CreateTestTopicAsync();
+        try
+        {
+            var producer = Client!.Producer();
+            var lastOffset = await producer.SendAsync(topic, new byte[] { 1 });
+            await producer.FlushAsync();
+
+            var consumerGroup = $"resume-test-group-{Guid.NewGuid():N}";
+            // StreamAsync resolves its own consumer identity as the group name directly (not through
+            // OffsetResolver.GetConsumerId, which appends a random per-call suffix that would never
+            // match across separate calls) — commit under that same identity here so the resume below
+            // actually finds it.
+            using var commitCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            // Commit AT lastOffset (the record that exists), not lastOffset + 1 — see the comment on
+            // CommitOffsetAsync_AtProducedOffset_RoundTripsThroughFetchLastOffset above for why.
+            // ResolveStartOffset then resumes at storedOffset + 1 = lastOffset + 1, i.e. after it.
+            await Client!.Consumer(new ConsumerOptions(ConsumerGroup: consumerGroup))
+                .CommitOffsetAsync(consumerGroup, topic, 0, lastOffset, commitCts.Token);
+
+            var options = new ConsumerOptions(ConsumerGroup: consumerGroup, OffsetReset: OffsetResetStrategy.StoredOrLatest);
+            var consumer = Client!.Consumer(options);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            var received = new List<ConsumeRecord>();
+            try
+            {
+                await foreach (var record in consumer.StreamAsync(topic, cancellationToken: cts.Token))
+                {
+                    received.Add(record);
+                }
+            }
+            catch (OperationCanceledException) { /* expected: no new records within 3s */ }
+
+            Assert.Empty(received); // must NOT have replayed the already-committed record
+        }
+        finally
+        {
+            await CleanupTopicAsync(topic);
+        }
+    }
 }
