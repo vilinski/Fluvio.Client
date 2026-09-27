@@ -104,7 +104,7 @@ pub extern "C" fn ffi_consumer_fetch_batch(
     // ever dereferenced on the Tokio worker thread that runs this spawned task.
     let client_addr = client as usize;
     let cancel_addr = cancel as usize;
-    let topic = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(topic, topic_len) }).into_owned();
+    let topic = unsafe { crate::ffi_types::string_from_raw(topic, topic_len) };
     crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         // `*mut c_void` is not `Send`, so the in-progress record pointers are carried across
@@ -200,8 +200,8 @@ pub extern "C" fn ffi_consumer_fetch_last_offset(
 ) {
     let client_addr = client as usize;
     let cancel_addr = cancel as usize;
-    let consumer_id = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(consumer_id, consumer_id_len) }).into_owned();
-    let topic = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(topic, topic_len) }).into_owned();
+    let consumer_id = unsafe { crate::ffi_types::string_from_raw(consumer_id, consumer_id_len) };
+    let topic = unsafe { crate::ffi_types::string_from_raw(topic, topic_len) };
     crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let work = client.consumer_offsets();
@@ -234,8 +234,8 @@ pub extern "C" fn ffi_consumer_commit_offset(
 ) {
     let client_addr = client as usize;
     let cancel_addr = cancel as usize;
-    let consumer_id = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(consumer_id, consumer_id_len) }).into_owned();
-    let topic = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(topic, topic_len) }).into_owned();
+    let consumer_id = unsafe { crate::ffi_types::string_from_raw(consumer_id, consumer_id_len) };
+    let topic = unsafe { crate::ffi_types::string_from_raw(topic, topic_len) };
     crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let topic_for_err = topic.clone();
@@ -308,7 +308,7 @@ pub extern "C" fn ffi_stream_new(
     tcb: Tcb,
 ) {
     let client_addr = client as usize;
-    let topic = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(topic, topic_len) }).into_owned();
+    let topic = unsafe { crate::ffi_types::string_from_raw(topic, topic_len) };
     crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let result: anyhow::Result<RecordStream> = async {

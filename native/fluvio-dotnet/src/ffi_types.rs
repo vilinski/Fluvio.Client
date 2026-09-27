@@ -75,6 +75,22 @@ pub unsafe extern "C" fn ffi_record_free(ptr: *mut c_void) {
     drop(Vec::from_raw_parts(record.value.ptr as *mut u8, record.value.len, record.value.len));
 }
 
+/// Reads a UTF-8 string out of a `(ptr, len)` pair from C#. `Encoding.UTF8.GetBytes("")` produces
+/// a zero-length array, and pinning a zero-length array with `fixed` yields a NULL pointer, so a
+/// null `ptr` (regardless of `len`) is a normal, reachable case - not just a guard against
+/// misuse - and must map to an empty string rather than being passed to
+/// `slice::from_raw_parts`, which is UB for a null pointer.
+///
+/// # Safety
+/// `ptr` must be null, or valid for reads of `len` bytes.
+pub unsafe fn string_from_raw(ptr: *const u8, len: usize) -> String {
+    if ptr.is_null() {
+        String::new()
+    } else {
+        String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).into_owned()
+    }
+}
+
 const _: () = assert!(std::mem::size_of::<FFISlice>() == 16);
 const _: () = assert!(std::mem::size_of::<FFIRecord>() == 56);
 
@@ -95,5 +111,24 @@ mod tests {
         let ptr = box_record(1, 2, 0, Some(b"k".to_vec()), b"v".to_vec());
         assert!(!ptr.is_null());
         unsafe { ffi_record_free(ptr) };
+    }
+
+    #[test]
+    fn string_from_raw_round_trips_nonempty() {
+        let data = b"hello";
+        let s = unsafe { string_from_raw(data.as_ptr(), data.len()) };
+        assert_eq!(s, "hello");
+    }
+
+    #[test]
+    fn string_from_raw_null_ptr_returns_empty_string_instead_of_ub() {
+        // `Encoding.UTF8.GetBytes("")` in C# is a zero-length array; `fixed` on a zero-length
+        // array pins to a NULL pointer, so passing an empty topic/consumer_id/name string from
+        // C# reaches every FFI entry point with (ptr: null, len: 0). Before this helper existed,
+        // every call site passed such a pointer straight into `std::slice::from_raw_parts`,
+        // which is UB for a null pointer regardless of length and aborts the process in debug
+        // builds - not a catchable panic.
+        let s = unsafe { string_from_raw(std::ptr::null(), 0) };
+        assert_eq!(s, "");
     }
 }

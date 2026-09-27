@@ -23,8 +23,8 @@ pub extern "C" fn ffi_admin_create_topic(
 ) {
     let client_addr = client as usize;
     let cancel_addr = cancel as usize;
-    let name = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(name, name_len) }).into_owned();
-    let spec_json = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(spec_json, spec_json_len) }).into_owned();
+    let name = unsafe { crate::ffi_types::string_from_raw(name, name_len) };
+    let spec_json = unsafe { crate::ffi_types::string_from_raw(spec_json, spec_json_len) };
     crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let work = async {
@@ -53,7 +53,7 @@ pub extern "C" fn ffi_admin_create_topic(
 pub extern "C" fn ffi_admin_delete_topic(client: *mut c_void, name: *const u8, name_len: usize, cancel: *mut c_void, tcb: Tcb) {
     let client_addr = client as usize;
     let cancel_addr = cancel as usize;
-    let name = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(name, name_len) }).into_owned();
+    let name = unsafe { crate::ffi_types::string_from_raw(name, name_len) };
     crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let work = async {
@@ -104,7 +104,7 @@ pub extern "C" fn ffi_admin_list_topics(client: *mut c_void, cancel: *mut c_void
 pub extern "C" fn ffi_admin_get_topic(client: *mut c_void, name: *const u8, name_len: usize, cancel: *mut c_void, tcb: Tcb) {
     let client_addr = client as usize;
     let cancel_addr = cancel as usize;
-    let name = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(name, name_len) }).into_owned();
+    let name = unsafe { crate::ffi_types::string_from_raw(name, name_len) };
     crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let work = async {
@@ -203,7 +203,7 @@ pub extern "C" fn ffi_admin_list_partitions(
     let topic_filter = if topic_filter.is_null() {
         None
     } else {
-        Some(String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(topic_filter, topic_filter_len) }).into_owned())
+        Some(unsafe { crate::ffi_types::string_from_raw(topic_filter, topic_filter_len) })
     };
     crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
@@ -239,7 +239,7 @@ pub extern "C" fn ffi_admin_get_partition(
 ) {
     let client_addr = client as usize;
     let cancel_addr = cancel as usize;
-    let topic = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(topic, topic_len) }).into_owned();
+    let topic = unsafe { crate::ffi_types::string_from_raw(topic, topic_len) };
     crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let key = format!("{topic}-{partition}");
@@ -314,7 +314,7 @@ pub extern "C" fn ffi_admin_list_smartmodules(client: *mut c_void, cancel: *mut 
 pub extern "C" fn ffi_admin_get_smartmodule(client: *mut c_void, name: *const u8, name_len: usize, cancel: *mut c_void, tcb: Tcb) {
     let client_addr = client as usize;
     let cancel_addr = cancel as usize;
-    let name = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(name, name_len) }).into_owned();
+    let name = unsafe { crate::ffi_types::string_from_raw(name, name_len) };
     crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let work = async {
@@ -351,8 +351,8 @@ pub extern "C" fn ffi_admin_create_smartmodule(
 ) {
     let client_addr = client as usize;
     let cancel_addr = cancel as usize;
-    let name = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(name, name_len) }).into_owned();
-    let wasm_bytes = unsafe { std::slice::from_raw_parts(wasm, wasm_len) }.to_vec();
+    let name = unsafe { crate::ffi_types::string_from_raw(name, name_len) };
+    let wasm_bytes = if wasm.is_null() { Vec::new() } else { unsafe { std::slice::from_raw_parts(wasm, wasm_len) }.to_vec() };
     crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let work = async {
@@ -379,7 +379,7 @@ pub extern "C" fn ffi_admin_create_smartmodule(
 pub extern "C" fn ffi_admin_delete_smartmodule(client: *mut c_void, name: *const u8, name_len: usize, cancel: *mut c_void, tcb: Tcb) {
     let client_addr = client as usize;
     let cancel_addr = cancel as usize;
-    let name = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(name, name_len) }).into_owned();
+    let name = unsafe { crate::ffi_types::string_from_raw(name, name_len) };
     crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let work = async {

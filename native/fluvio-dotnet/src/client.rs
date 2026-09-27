@@ -21,8 +21,7 @@ struct ConnectConfig {
 
 #[no_mangle]
 pub extern "C" fn ffi_client_connect(config_json: *const u8, config_json_len: usize, cancel: *mut c_void, tcb: Tcb) {
-    let json = unsafe { std::slice::from_raw_parts(config_json, config_json_len) };
-    let json = String::from_utf8_lossy(json).into_owned();
+    let json = unsafe { crate::ffi_types::string_from_raw(config_json, config_json_len) };
     let cancel_addr = cancel as usize;
     crate::tcb::spawn_guarded(tcb, async move {
         let work = async {

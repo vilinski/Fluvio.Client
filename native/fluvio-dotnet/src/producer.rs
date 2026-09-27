@@ -44,8 +44,7 @@ pub extern "C" fn ffi_producer_new(
     // ever dereferenced on the Tokio worker thread that runs this spawned task.
     let client_addr = client as usize;
     let cancel_addr = cancel as usize;
-    let topic = unsafe { std::slice::from_raw_parts(topic, topic_len) };
-    let topic = String::from_utf8_lossy(topic).into_owned();
+    let topic = unsafe { crate::ffi_types::string_from_raw(topic, topic_len) };
     let use_explicit = use_explicit_partitioning != 0;
     crate::tcb::spawn_guarded(tcb, async move {
         let client = unsafe { &*(client_addr as *const Fluvio) };
