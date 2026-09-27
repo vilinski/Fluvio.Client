@@ -186,6 +186,7 @@ internal sealed class FluvioAdmin : IFluvioAdmin
             writer.WriteStartObject();
             writer.WriteNumber("partitions", spec.Partitions);
             writer.WriteNumber("replicationFactor", spec.ReplicationFactor);
+            writer.WriteBoolean("ignoreRackAssignment", spec.IgnoreRackAssignment);
             writer.WriteEndObject();
         }
         return Encoding.UTF8.GetString(stream.ToArray());

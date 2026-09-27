@@ -29,9 +29,13 @@ pub extern "C" fn ffi_admin_create_topic(
         let client = unsafe { &*(client_addr as *const Fluvio) };
         let work = async {
             let admin = admin_for(client).await?;
-            let partitions: u32 = serde_json::from_str::<serde_json::Value>(&spec_json)?["partitions"].as_u64().unwrap_or(1) as u32;
-            let replication: u32 = serde_json::from_str::<serde_json::Value>(&spec_json)?["replicationFactor"].as_u64().unwrap_or(1) as u32;
-            let spec = TopicSpec::new_computed(partitions, replication, None);
+            let spec_value: serde_json::Value = serde_json::from_str(&spec_json)?;
+            let partitions: u32 = spec_value["partitions"].as_u64().unwrap_or(1) as u32;
+            let replication: u32 = spec_value["replicationFactor"].as_u64().unwrap_or(1) as u32;
+            // `IgnoreRackAssignment` is a plain `bool` type alias (fluvio_types::IgnoreRackAssignment),
+            // not a wrapper type, so the JSON value maps straight through.
+            let ignore_rack: bool = spec_value["ignoreRackAssignment"].as_bool().unwrap_or(false);
+            let spec = TopicSpec::new_computed(partitions, replication, Some(ignore_rack));
             admin.create(name, false, spec).await?;
             Ok::<_, anyhow::Error>(())
         };

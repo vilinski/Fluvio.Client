@@ -95,4 +95,21 @@ public class AdminIntegrationTests : FluvioIntegrationTestBase
         cts.Cancel();
         await Assert.ThrowsAsync<TaskCanceledException>(() => admin.ListTopicsAsync(cts.Token));
     }
+
+    [Fact]
+    public async Task CreateTopicAsync_WithIgnoreRackAssignment_DoesNotThrow()
+    {
+        var admin = Client!.Admin();
+        var topicName = GenerateTopicName();
+        try
+        {
+            await admin.CreateTopicAsync(topicName, new TopicSpec(Partitions: 1, ReplicationFactor: 1, IgnoreRackAssignment: true));
+            var topic = await admin.GetTopicAsync(topicName);
+            Assert.NotNull(topic);
+        }
+        finally
+        {
+            await CleanupTopicAsync(topicName);
+        }
+    }
 }

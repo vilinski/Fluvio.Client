@@ -44,6 +44,41 @@ pub struct FFIRecordArray {
     pub len: usize,
 }
 
+/// Owns a set of `box_record`-allocated pointers until explicitly handed off. Frees every
+/// still-owned pointer on drop, so a partially-filled batch is never leaked regardless of how
+/// the accumulating function exits: an error return (`?`/`return Err`), a panic, OR the future
+/// simply being dropped without ever resolving (which is exactly what happens to `ffi_consumer_
+/// fetch_batch`'s `work` future when `crate::cancel::race` cancels it mid-loop - a plain
+/// `Vec<usize>`'s own `Drop` does nothing for the records those integers point to). Call
+/// `into_inner()` on the success path to take ownership out without freeing.
+struct RecordPtrGuard(Vec<usize>);
+
+impl RecordPtrGuard {
+    fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    fn push(&mut self, ptr: usize) {
+        self.0.push(ptr);
+    }
+
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    fn into_inner(mut self) -> Vec<usize> {
+        std::mem::take(&mut self.0)
+    }
+}
+
+impl Drop for RecordPtrGuard {
+    fn drop(&mut self) {
+        for ptr in self.0.drain(..) {
+            unsafe { crate::ffi_types::ffi_record_free(ptr as *mut c_void) };
+        }
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn ffi_consumer_fetch_batch(
     client: *mut c_void,
@@ -78,7 +113,7 @@ pub extern "C" fn ffi_consumer_fetch_batch(
                 .max_bytes(max_bytes as i32)
                 .build()?;
             let mut stream = client.consumer_with_config(config).await?;
-            let mut out = Vec::new();
+            let mut out = RecordPtrGuard::new();
             let mut bytes_read = 0usize;
             loop {
                 if bytes_read >= max_bytes as usize { break; }
@@ -111,7 +146,7 @@ pub extern "C" fn ffi_consumer_fetch_batch(
                     None => break,
                 }
             }
-            Ok::<_, anyhow::Error>(out)
+            Ok::<_, anyhow::Error>(out.into_inner())
         };
         let result = unsafe { crate::cancel::race(cancel_addr, work).await };
         match result {
