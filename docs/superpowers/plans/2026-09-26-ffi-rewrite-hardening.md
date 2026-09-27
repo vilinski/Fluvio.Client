@@ -1137,27 +1137,27 @@ git commit -m "fix: eliminate producer create/dispose race on concurrent SendAsy
 **Interfaces:**
 - Produces: `FluvioClientOptions` no longer has resilience knobs that silently do nothing (per spec §9: "resilience moves to the Rust client / connection layer; no equivalent wrapper is kept at the C# level" — this task makes that decision visible in the API instead of leaving dead fields). `FluvioException`'s hierarchy (`FluvioConnectionException`, `TopicNotFoundException`, `TopicAlreadyExistsException`) is what callers should catch, not `IncompatiblePlatformVersionException` (removed) or message substrings.
 
-- [ ] **Step 1: Grep for every usage of the fields being removed**
+- [x] **Step 1: Grep for every usage of the fields being removed**
 
 ```bash
 grep -rn "EnableCircuitBreaker\|MaxRetries\|RetryBaseDelay\|CircuitBreakerFailureThreshold\|CircuitBreakerDuration\|EnableAutoReconnect\|MaxReconnectAttempts\|ReconnectDelay\|IncompatiblePlatformVersionException" src/ tests/ examples/ --include="*.cs"
 ```
 Confirm every hit is either the definition itself or a place this task will update.
 
-- [ ] **Step 2: Remove the dead options from `FluvioClientOptions`**
+- [x] **Step 2: Remove the dead options from `FluvioClientOptions`**
 
 Delete the eight parameters/properties and their XML doc comments from the `FluvioClientOptions` record in `IFluvioClient.cs`.
 
-- [ ] **Step 3: Remove `IncompatiblePlatformVersionException` and its test**
+- [x] **Step 3: Remove `IncompatiblePlatformVersionException` and its test**
 
 Delete the class from `FluvioException.cs`. In `PlatformVersionTests.cs`: if every test in that file only constructs/asserts on `IncompatiblePlatformVersionException` directly (per the review finding), delete the file entirely (`git rm tests/Fluvio.Client.Tests/PlatformVersionTests.cs`) rather than leave a test file asserting on a deleted type. If any test in that file covers something else (re-check before deleting), keep those and remove only the dead ones.
 
-- [ ] **Step 4: Build and fix fallout**
+- [x] **Step 4: Build and fix fallout**
 
 Run: `dotnet build Fluvio.Client.sln --configuration Release /p:TreatWarningsAsErrors=true`
 Expected: compile errors at every remaining usage — fix each (should be none beyond what Step 1 found, but this catches anything missed).
 
-- [ ] **Step 5: Fix the example projects' exception handling**
+- [x] **Step 5: Fix the example projects' exception handling**
 
 ```csharp
 // examples/ProducerExample/Program.cs — replace
@@ -1168,17 +1168,17 @@ catch (TopicAlreadyExistsException)
 
 Apply the same pattern to `examples/StreamingConsumerExample/Program.cs`'s equivalent catch.
 
-- [ ] **Step 6: Build and run all examples to confirm they still work**
+- [x] **Step 6: Build and run all examples to confirm they still work**
 
 Run: `dotnet build Fluvio.Client.sln --configuration Release`
 Run each example against `local` manually (e.g. `dotnet run --project examples/ProducerExample -- ` with `FLUVIO_TEST_PROFILE`-equivalent env var or whatever config the example reads) and confirm the "topic already exists" path is hit and handled gracefully on a second run.
 
-- [ ] **Step 7: Full unit test run**
+- [x] **Step 7: Full unit test run**
 
 Run: `dotnet test Fluvio.Client.sln --filter "FullyQualifiedName!~Integration"`
 Expected: passes (count will be slightly lower than before if `PlatformVersionTests.cs` was deleted — confirm the exact new count and note it, don't be alarmed by a lower number here).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/Fluvio.Client.Abstractions/IFluvioClient.cs src/Fluvio.Client/FluvioException.cs tests/Fluvio.Client.Tests/PlatformVersionTests.cs examples/ProducerExample/Program.cs examples/StreamingConsumerExample/Program.cs
