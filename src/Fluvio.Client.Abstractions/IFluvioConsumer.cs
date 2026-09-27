@@ -51,5 +51,4 @@ public record ConsumeRecord(
     ReadOnlyMemory<byte> Value,
     ReadOnlyMemory<byte>? Key = null,
     DateTimeOffset Timestamp = default,
-    int Partition = 0,
-    IReadOnlyDictionary<string, ReadOnlyMemory<byte>>? Headers = null);
+    int Partition = 0);
