@@ -737,11 +737,11 @@ in a future plan revision; does not reproduce against `hetzner-tls` in the runs 
 - Consumes: `ffi_consumer_fetch_last_offset`/`FetchLastOffsetAsync` (already exists from the original Task 4).
 - Produces: `ffi_consumer_commit_offset` no longer requires a record to exist at the committed offset; `FluvioConsumer.StreamAsync` calls `FetchLastOffsetAsync` first when `_options.OffsetReset` is `StoredOrEarliest`/`StoredOrLatest` and a consumer group is configured, passing the real stored offset into `OffsetResolver.ResolveStartOffset` instead of `null`.
 
-- [ ] **Step 1: Investigate the real `fluvio` offset-commit API**
+- [x] **Step 1: Investigate the real `fluvio` offset-commit API**
 
 Run: `cargo doc --open -p fluvio` (or read `~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluvio-0.50.1/src/` per the handoff note) to find the correct way to persist a consumer offset WITHOUT requiring a live record at that exact offset — likely a `ConsumerOffsetsClient`/`fetch_offset`/`commit_offset`-style API storing a value directly (this is how the original Task 4 plan assumed it worked; find out why the current implementation instead races a stream for a record and correct it).
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 ```csharp
 // tests/Fluvio.Client.Tests/Integration/ConsumerIntegrationTests.cs — add
@@ -762,21 +762,21 @@ public async Task CommitOffsetAsync_TipOfLog_SucceedsWithoutRequiringAnExistingR
 }
 ```
 
-- [ ] **Step 3: Run to confirm it fails**
+- [x] **Step 3: Run to confirm it fails**
 
 Run: `FLUVIO_TEST_PROFILE=local dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~CommitOffsetAsync_TipOfLog"`
 Expected: FAIL — times out or throws "no record found at offset" per the handoff note.
 
-- [ ] **Step 4: Fix `ffi_consumer_commit_offset` to use the correct API from Step 1**
+- [x] **Step 4: Fix `ffi_consumer_commit_offset` to use the correct API from Step 1**
 
 (Exact code depends on Step 1's findings — implement using whatever the real `fluvio` crate's offset-storage API is, removing the stream-and-wait-for-a-record logic entirely.)
 
-- [ ] **Step 5: Run to confirm it passes**
+- [x] **Step 5: Run to confirm it passes**
 
 Run: `FLUVIO_TEST_PROFILE=local dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~CommitOffsetAsync_TipOfLog"`
 Expected: PASS.
 
-- [ ] **Step 6: Fix `StreamAsync`'s stored-offset resume**
+- [x] **Step 6: Fix `StreamAsync`'s stored-offset resume**
 
 ```csharp
 // FluvioConsumer.cs — StreamAsync, replace the hardcoded null
@@ -802,7 +802,7 @@ public async IAsyncEnumerable<ConsumeRecord> StreamAsync(string topic, int parti
 }
 ```
 
-- [ ] **Step 7: Write the resume test (the Review Focus item — commit then confirm the next stream waits, doesn't replay)**
+- [x] **Step 7: Write the resume test (the Review Focus item — commit then confirm the next stream waits, doesn't replay)**
 
 ```csharp
 // tests/Fluvio.Client.Tests/Integration/ConsumerIntegrationTests.cs — add
@@ -835,14 +835,14 @@ public async Task StreamAsync_ResumesFromStoredOffset_WaitsForNewRecordsInsteadO
 }
 ```
 
-- [ ] **Step 8: Run both new tests plus the full suite against `local`, then `hetzner-tls`**
+- [x] **Step 8: Run both new tests plus the full suite against `local`, then `hetzner-tls`**
 
 ```bash
 FLUVIO_TEST_PROFILE=local dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~Integration" --configuration Release
 FLUVIO_TEST_PROFILE=hetzner-tls dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~Integration" --configuration Release
 ```
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add native/fluvio-dotnet/src/consumer.rs src/Fluvio.Client/Consumer/FluvioConsumer.cs tests/Fluvio.Client.Tests/Integration/ConsumerIntegrationTests.cs
