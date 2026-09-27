@@ -17,6 +17,7 @@ internal sealed class FluvioProducer : IFluvioProducer
     private readonly RustResource _clientHandle;
     private readonly ProducerOptions _options;
     private readonly ConcurrentDictionary<string, RustResource> _producerHandlesByTopic = new();
+    private readonly ConcurrentDictionary<string, int> _partitionCounts = new();
     private readonly SemaphoreSlim _producerCreationLock = new(1, 1);
     private bool _disposed;
 
@@ -80,6 +81,14 @@ internal sealed class FluvioProducer : IFluvioProducer
             var valueArray = value.ToArray();
             var keyArray = key?.ToArray();
 
+            long explicitPartition = -1;
+            if (_options.Partitioner is { } partitioner)
+            {
+                var partitionCount = _partitionCounts.GetValueOrDefault(topic, 1);
+                var config = new PartitionerConfig(partitionCount);
+                explicitPartition = partitioner.SelectPartition(topic, key, value, config);
+            }
+
             var (cancelHandle, registration) = CancellationBridge.Create(timeoutCts.Token);
             using var _cancelReg = registration;
             var offset = await producerHandle.RunAsyncWithIncrement(async h =>
@@ -100,6 +109,7 @@ internal sealed class FluvioProducer : IFluvioProducer
                                     h,
                                     (byte*)keyAddr, (nuint)(keyArray?.Length ?? 0),
                                     (byte*)valueAddr, (nuint)valueArray.Length,
+                                    explicitPartition,
                                     cancelHandle,
                                     tcb);
                             }
@@ -160,12 +170,15 @@ internal sealed class FluvioProducer : IFluvioProducer
     }
 
     /// <summary>
-    /// Sets the partition count for a topic, enabling the partitioner to work correctly.
+    /// Sets the partition count for a topic, enabling <see cref="ProducerOptions.Partitioner"/> to
+    /// compute a <see cref="PartitionerConfig"/> with the real partition count for this topic.
     /// </summary>
     /// <remarks>
-    /// Partition selection is now performed by the native <c>fluvio</c> client based on the
-    /// record key, so this no longer affects producer behavior; it is retained to satisfy
-    /// <see cref="IFluvioProducer"/> for callers that still call it.
+    /// Only meaningful when <see cref="ProducerOptions.Partitioner"/> is set — without a custom
+    /// partitioner, the native <c>fluvio</c> client's own default partitioner is used unchanged and
+    /// this value is not consulted. Must be called before <see cref="SendAsync"/> for callers that
+    /// want their <see cref="IPartitioner"/> to see the topic's actual partition count rather than
+    /// the default of 1.
     /// </remarks>
     /// <param name="topic">Topic name.</param>
     /// <param name="partitionCount">Number of partitions.</param>
@@ -175,6 +188,8 @@ internal sealed class FluvioProducer : IFluvioProducer
         {
             throw new ArgumentException("Partition count must be positive", nameof(partitionCount));
         }
+
+        _partitionCounts[topic] = partitionCount;
     }
 
     private async Task<RustResource> GetOrCreateProducerHandleAsync(string topic, CancellationToken cancellationToken)
@@ -193,6 +208,7 @@ internal sealed class FluvioProducer : IFluvioProducer
             }
 
             var topicBytes = Encoding.UTF8.GetBytes(topic);
+            var useExplicitPartitioning = (byte)(_options.Partitioner is not null ? 1 : 0);
             var (cancelHandle, registration) = CancellationBridge.Create(cancellationToken);
             using var _cancelReg = registration;
             var resultPtr = await _clientHandle.RunAsyncWithIncrement(async ch =>
@@ -207,7 +223,7 @@ internal sealed class FluvioProducer : IFluvioProducer
                         {
                             unsafe
                             {
-                                Native.ProducerNew(ch, (byte*)topicAddr, (nuint)topicBytes.Length, cancelHandle, tcb);
+                                Native.ProducerNew(ch, (byte*)topicAddr, (nuint)topicBytes.Length, useExplicitPartitioning, cancelHandle, tcb);
                             }
                         });
                     }

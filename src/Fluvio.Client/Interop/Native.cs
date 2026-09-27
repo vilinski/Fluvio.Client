@@ -79,10 +79,10 @@ internal static partial class Native
     internal static partial void CancelDrop(nint handle);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_producer_new")]
-    internal static unsafe partial void ProducerNew(nint client, byte* topic, nuint topicLen, nint cancel, Tcb tcb);
+    internal static unsafe partial void ProducerNew(nint client, byte* topic, nuint topicLen, byte useExplicitPartitioning, nint cancel, Tcb tcb);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_producer_send")]
-    internal static unsafe partial void ProducerSend(nint producer, byte* key, nuint keyLen, byte* value, nuint valueLen, nint cancel, Tcb tcb);
+    internal static unsafe partial void ProducerSend(nint producer, byte* key, nuint keyLen, byte* value, nuint valueLen, long partition, nint cancel, Tcb tcb);
 
     [LibraryImport(LibraryName, EntryPoint = "ffi_producer_flush")]
     internal static partial void ProducerFlush(nint producer, nint cancel, Tcb tcb);
