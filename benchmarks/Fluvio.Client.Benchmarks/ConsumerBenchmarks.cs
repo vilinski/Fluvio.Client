@@ -22,11 +22,13 @@ public class ConsumerBenchmarks
     [GlobalSetup]
     public async Task Setup()
     {
-        var options = new FluvioClientOptions(
-            SpuEndpoint: "localhost:9010",
-            UseTls: false,
-            ClientId: "benchmark-consumer"
-        );
+        // FLUVIO_TEST_PROFILE selects a named Fluvio profile (e.g. "hetzner-tls") from
+        // ~/.fluvio/config, matching tests/Fluvio.Client.Tests/Integration/IntegrationTestConfig.cs -
+        // unset connects to a local cluster with no TLS.
+        var profile = Environment.GetEnvironmentVariable("FLUVIO_TEST_PROFILE");
+        var options = string.IsNullOrWhiteSpace(profile)
+            ? new FluvioClientOptions(ScEndpoint: "localhost:9003", UseTls: false, ClientId: "benchmark-consumer")
+            : new FluvioClientOptions(Profile: profile, ClientId: "benchmark-consumer");
 
         _client = await FluvioClient.ConnectAsync(options);
         _consumer = _client.Consumer();
