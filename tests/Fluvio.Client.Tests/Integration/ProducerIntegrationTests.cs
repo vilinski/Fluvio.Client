@@ -158,19 +158,31 @@ public class ProducerIntegrationTests : FluvioIntegrationTestBase
             // Wait for records to be persisted
             await Task.Delay(500);
 
-            // Consume from each partition and verify distribution
+            // Consume from each partition and verify distribution. Uses FetchBatchAsync (bounded by an
+            // explicit CancellationToken) rather than StreamAsync: the 30 records are split across 3
+            // partitions, so no single partition ever reaches 30 records, and StreamAsync's stream is
+            // intentionally continuous/infinite (Task 5) - enumerating it with a "stop at 30" break
+            // that never fires hangs forever. Confirmed by an actual CI hang on this exact test.
             var partitionCounts = new Dictionary<int, int>();
 
             for (var partition = 0; partition < 3; partition++)
             {
-                var count = 0;
-                await foreach (var record in consumer.StreamAsync(topicName, partition, offset: 0))
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                IReadOnlyList<Fluvio.Client.Abstractions.ConsumeRecord> batch;
+                try
+                {
+                    batch = await consumer.FetchBatchAsync(topicName, partition: partition, offset: 0, cancellationToken: cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    batch = Array.Empty<Fluvio.Client.Abstractions.ConsumeRecord>();
+                }
+
+                foreach (var record in batch)
                 {
                     Assert.Equal(partition, record.Partition);
-                    count++;
-                    if (count >= 30) break;
                 }
-                partitionCounts[partition] = count;
+                partitionCounts[partition] = batch.Count;
             }
 
             // Verify all records were distributed (total 30)
