@@ -38,6 +38,18 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, Notify};
 
+/// `OffsetResolver.EndOffset` on the C# side is `-1`, used as a sentinel for "start from the
+/// end of the topic" (e.g. the default `OffsetResetStrategy.Latest`). `Offset::absolute` rejects
+/// any negative value, so every FFI entry point that takes a caller-resolved starting offset must
+/// route it through here instead of calling `Offset::absolute` directly.
+fn resolve_start_offset(offset: i64) -> Offset {
+    if offset < 0 {
+        Offset::end()
+    } else {
+        Offset::absolute(offset).expect("offset already checked non-negative")
+    }
+}
+
 #[repr(C)]
 pub struct FFIRecordArray {
     pub records: *mut *mut c_void,
@@ -108,7 +120,7 @@ pub extern "C" fn ffi_consumer_fetch_batch(
             let config = ConsumerConfigExt::builder()
                 .topic(topic)
                 .partition(partition)
-                .offset_start(Offset::absolute(offset)?)
+                .offset_start(resolve_start_offset(offset))
                 .offset_strategy(OffsetManagementStrategy::None)
                 .max_bytes(max_bytes as i32)
                 .build()?;
@@ -231,7 +243,7 @@ pub extern "C" fn ffi_consumer_commit_offset(
             let config = ConsumerConfigExt::builder()
                 .topic(topic)
                 .partition(partition)
-                .offset_start(Offset::absolute(offset)?)
+                .offset_start(resolve_start_offset(offset))
                 .offset_strategy(OffsetManagementStrategy::Manual)
                 .offset_consumer(consumer_id)
                 .disable_continuous(true)
@@ -303,7 +315,7 @@ pub extern "C" fn ffi_stream_new(
             let config = ConsumerConfigExt::builder()
                 .topic(topic)
                 .partition(partition)
-                .offset_start(Offset::absolute(offset)?)
+                .offset_start(resolve_start_offset(offset))
                 .offset_strategy(OffsetManagementStrategy::None)
                 .build()?;
             let stream = client.consumer_with_config(config).await?;

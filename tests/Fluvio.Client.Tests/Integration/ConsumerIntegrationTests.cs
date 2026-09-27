@@ -412,4 +412,36 @@ public class ConsumerIntegrationTests : FluvioIntegrationTestBase
             await CleanupTopicAsync(topic);
         }
     }
+
+    [Fact]
+    public async Task StreamAsync_DefaultOptions_NoExplicitOffset_DoesNotThrowNegativeOffset()
+    {
+        // Critical regression: ConsumerOptions.OffsetReset defaults to Latest, which
+        // OffsetResolver.ResolveStartOffset maps to EndOffset (-1). That sentinel used to be
+        // passed straight into the native Offset::absolute(-1), which fluvio rejects
+        // ("Attempted to create negative offset: -1"), so the most basic call shape -
+        // StreamAsync(topic) with no explicit offset and no consumer group - crashed instead
+        // of streaming from the end of the topic.
+        var topic = await CreateTestTopicAsync();
+        try
+        {
+            var consumer = Client!.Consumer(); // default ConsumerOptions: OffsetReset = Latest
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            var received = new List<ConsumeRecord>();
+            try
+            {
+                await foreach (var record in consumer.StreamAsync(topic, cancellationToken: cts.Token))
+                {
+                    received.Add(record);
+                }
+            }
+            catch (OperationCanceledException) { /* expected: nothing new arrives within 3s */ }
+
+            Assert.Empty(received); // no exception thrown; just no new records at the tail
+        }
+        finally
+        {
+            await CleanupTopicAsync(topic);
+        }
+    }
 }
