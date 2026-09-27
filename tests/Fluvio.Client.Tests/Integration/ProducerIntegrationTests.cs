@@ -187,114 +187,12 @@ public class ProducerIntegrationTests : FluvioIntegrationTestBase
         }
     }
 
-    [Fact]
-    public async Task SendAsync_WithSpecificPartitioner_AllRecordsGoToSamePartition()
-    {
-        // Create topic with 3 partitions
-        var topicName = await CreateTestTopicAsync(partitions: 3);
-
-        var producerOptions = new ProducerOptions(
-            Partitioner: new Fluvio.Client.Producer.SpecificPartitioner(1) // Always use partition 1
-        );
-        var producer = Client!.Producer(producerOptions);
-        var consumer = Client!.Consumer();
-
-        try
-        {
-            // Send 10 records (should all go to partition 1)
-            for (var i = 0; i < 10; i++)
-            {
-                await producer.SendAsync(topicName, Encoding.UTF8.GetBytes($"value-{i}"));
-            }
-
-            // Wait for records to be persisted
-            await Task.Delay(500);
-
-            // Check partition 0 - should be empty
-            var partition0Count = 0;
-            await foreach (var _ in consumer.StreamAsync(topicName, 0, offset: 0))
-            {
-                partition0Count++;
-                if (partition0Count >= 10) break;
-            }
-            Assert.Equal(0, partition0Count);
-
-            // Check partition 1 - should have all 10 records
-            var partition1Count = 0;
-            await foreach (var record in consumer.StreamAsync(topicName, 1, offset: 0))
-            {
-                Assert.Equal(1, record.Partition);
-                partition1Count++;
-                if (partition1Count >= 10) break;
-            }
-            Assert.Equal(10, partition1Count);
-
-            // Check partition 2 - should be empty
-            var partition2Count = 0;
-            await foreach (var _ in consumer.StreamAsync(topicName, 2, offset: 0))
-            {
-                partition2Count++;
-                if (partition2Count >= 10) break;
-            }
-            Assert.Equal(0, partition2Count);
-        }
-        finally
-        {
-            await CleanupTopicAsync(topicName);
-        }
-    }
-
-    [Fact]
-    public async Task SendAsync_SameKey_GoesToSamePartition()
-    {
-        // Create topic with 3 partitions
-        var topicName = await CreateTestTopicAsync(partitions: 3);
-        var producer = Client!.Producer();
-        var consumer = Client!.Consumer();
-
-        try
-        {
-            var key = Encoding.UTF8.GetBytes("consistent-key");
-
-            // Send 10 records with the same key
-            for (var i = 0; i < 10; i++)
-            {
-                await producer.SendAsync(topicName, Encoding.UTF8.GetBytes($"value-{i}"), key);
-            }
-
-            // Wait for records to be persisted
-            await Task.Delay(500);
-
-            // Find which partition the records went to
-            int? targetPartition = null;
-            var recordCount = 0;
-
-            for (var partition = 0; partition < 3; partition++)
-            {
-                var partitionCount = 0;
-                await foreach (var record in consumer.StreamAsync(topicName, partition, offset: 0))
-                {
-                    partitionCount++;
-                    Assert.Equal(partition, record.Partition);
-                    if (partitionCount >= 10) break;
-                }
-
-                if (partitionCount > 0)
-                {
-                    targetPartition = partition;
-                    recordCount = partitionCount;
-                }
-            }
-
-            // Verify all 10 records went to the same partition
-            Assert.NotNull(targetPartition);
-            Assert.Equal(10, recordCount);
-        }
-        finally
-        {
-            await CleanupTopicAsync(topicName);
-        }
-    }
+    // SendAsync_WithSpecificPartitioner_AllRecordsGoToSamePartition and SendAsync_SameKey_GoesToSamePartition
+    // used to live here. Both enumerated StreamAsync on partitions expected to stay empty, with no
+    // cancellation bound — since Task 5's StreamAsync is intentionally a continuous/infinite stream,
+    // that hangs forever instead of ever observing "0 records". Their intent (custom partitioner routes
+    // deterministically; same key always goes to the same partition) now lives in
+    // ProducerPartitionerIntegrationTests.cs, using bounded FetchBatchAsync calls instead.
 
     [Fact]
     public async Task SendAsync_CancelledBeforeCompletion_ThrowsTaskCanceledException()

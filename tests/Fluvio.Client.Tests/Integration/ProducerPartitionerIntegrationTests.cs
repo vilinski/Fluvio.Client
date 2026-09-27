@@ -44,6 +44,35 @@ public class ProducerPartitionerIntegrationTests : FluvioIntegrationTestBase
         }
     }
 
+    [Fact]
+    public async Task SendAsync_SameKey_AlwaysGoesToSamePartition()
+    {
+        var topic = await CreateTestTopicAsync(partitions: 3);
+        try
+        {
+            var producer = Client!.Producer(); // default SiphashRoundRobinPartitioner
+            var key = new byte[] { 0xAB, 0xCD };
+            for (var i = 0; i < 10; i++)
+            {
+                await producer.SendAsync(topic, new byte[] { (byte)i }, key: key);
+            }
+            await producer.FlushAsync();
+
+            var counts = new List<int>();
+            for (var p = 0; p < 3; p++)
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                counts.Add((await FetchEmptyOrTimeoutAsync(topic, p, cts.Token)).Count);
+            }
+
+            Assert.Single(counts, c => c == 10); // all 10 landed in exactly one partition
+        }
+        finally
+        {
+            await CleanupTopicAsync(topic);
+        }
+    }
+
     private async Task<IReadOnlyList<ConsumeRecord>> FetchEmptyOrTimeoutAsync(string topic, int partition, CancellationToken cancellationToken)
     {
         try
