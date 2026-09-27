@@ -226,4 +226,29 @@ public class BatchFlushIntegrationTests : FluvioIntegrationTestBase
         // Assert
         Assert.Equal(2, offsets.Length);
     }
+
+    [Fact]
+    public async Task ConcurrentSendAndDispose_DoesNotHangOrThrowUnexpectedly()
+    {
+        var topic = await CreateTestTopicAsync();
+        var producer = Client!.Producer();
+
+        var sendTasks = Enumerable.Range(0, 20)
+            .Select(i => Task.Run(async () =>
+            {
+                try { await producer.SendAsync(topic, new byte[] { (byte)i }); }
+                catch (ObjectDisposedException) { /* acceptable if dispose won the race */ }
+            }))
+            .ToArray();
+
+        var disposeTask = Task.Run(async () =>
+        {
+            await Task.Delay(5);
+            await producer.DisposeAsync();
+        });
+
+        var all = Task.WhenAll(sendTasks.Append(disposeTask));
+        var completed = await Task.WhenAny(all, Task.Delay(TimeSpan.FromSeconds(10)));
+        Assert.Same(all, completed); // must not hang
+    }
 }

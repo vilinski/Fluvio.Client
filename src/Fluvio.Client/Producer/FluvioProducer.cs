@@ -16,9 +16,9 @@ internal sealed class FluvioProducer : IFluvioProducer
 {
     private readonly RustResource _clientHandle;
     private readonly ProducerOptions _options;
-    private readonly ConcurrentDictionary<string, RustResource> _producerHandlesByTopic = new();
+    private readonly object _handlesLock = new();
+    private readonly Dictionary<string, Task<RustResource>> _producerHandleTasksByTopic = new();
     private readonly ConcurrentDictionary<string, int> _partitionCounts = new();
-    private readonly SemaphoreSlim _producerCreationLock = new(1, 1);
     private bool _disposed;
 
     /// <summary>
@@ -159,8 +159,15 @@ internal sealed class FluvioProducer : IFluvioProducer
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        foreach (var handle in _producerHandlesByTopic.Values)
+        List<Task<RustResource>> handleTasks;
+        lock (_handlesLock)
         {
+            handleTasks = [.. _producerHandleTasksByTopic.Values];
+        }
+
+        foreach (var handleTask in handleTasks)
+        {
+            var handle = await handleTask.ConfigureAwait(false);
             using var timeoutCts = CreateSendTimeoutSource(cancellationToken);
             var (cancelHandle, registration) = CancellationBridge.Create(timeoutCts.Token);
             using var _ = registration;
@@ -192,53 +199,72 @@ internal sealed class FluvioProducer : IFluvioProducer
         _partitionCounts[topic] = partitionCount;
     }
 
-    private async Task<RustResource> GetOrCreateProducerHandleAsync(string topic, CancellationToken cancellationToken)
+    private Task<RustResource> GetOrCreateProducerHandleAsync(string topic, CancellationToken cancellationToken)
     {
-        if (_producerHandlesByTopic.TryGetValue(topic, out var existing))
+        lock (_handlesLock)
         {
-            return existing;
-        }
-
-        await _producerCreationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (_producerHandlesByTopic.TryGetValue(topic, out existing))
+            if (_disposed)
             {
-                return existing;
+                throw new ObjectDisposedException(nameof(FluvioProducer));
             }
 
-            var topicBytes = Encoding.UTF8.GetBytes(topic);
-            var useExplicitPartitioning = (byte)(_options.Partitioner is not null ? 1 : 0);
-            var (cancelHandle, registration) = CancellationBridge.Create(cancellationToken);
-            using var _cancelReg = registration;
-            var resultPtr = await _clientHandle.RunAsyncWithIncrement(async ch =>
+            if (_producerHandleTasksByTopic.TryGetValue(topic, out var existingTask))
             {
-                Task<nint> callTask;
-                unsafe
+                return existingTask;
+            }
+
+            var creationTask = CreateProducerHandleAsync(topic, cancellationToken);
+            _producerHandleTasksByTopic[topic] = creationTask;
+
+            // A failed/cancelled creation must not permanently poison this topic — remove it so the
+            // next SendAsync call retries fresh, matching the retry-on-failure behavior of the
+            // original semaphore-guarded implementation (which only cached on success).
+            _ = creationTask.ContinueWith(t =>
+            {
+                if (t.IsCompletedSuccessfully)
                 {
-                    fixed (byte* tp = topicBytes)
+                    return;
+                }
+                lock (_handlesLock)
+                {
+                    if (_producerHandleTasksByTopic.TryGetValue(topic, out var current) && current == creationTask)
                     {
-                        var topicAddr = (nint)tp;
-                        callTask = Callbacks.CallAsync(tcb =>
-                        {
-                            unsafe
-                            {
-                                Native.ProducerNew(ch, (byte*)topicAddr, (nuint)topicBytes.Length, useExplicitPartitioning, cancelHandle, tcb);
-                            }
-                        });
+                        _producerHandleTasksByTopic.Remove(topic);
                     }
                 }
-                return await callTask.ConfigureAwait(false);
-            }).ConfigureAwait(false);
+            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
 
-            var handle = new RustResource(resultPtr, Native.ProducerDrop);
-            _producerHandlesByTopic[topic] = handle;
-            return handle;
+            return creationTask;
         }
-        finally
+    }
+
+    private async Task<RustResource> CreateProducerHandleAsync(string topic, CancellationToken cancellationToken)
+    {
+        var topicBytes = Encoding.UTF8.GetBytes(topic);
+        var useExplicitPartitioning = (byte)(_options.Partitioner is not null ? 1 : 0);
+        var (cancelHandle, registration) = CancellationBridge.Create(cancellationToken);
+        using var _cancelReg = registration;
+        var resultPtr = await _clientHandle.RunAsyncWithIncrement(async ch =>
         {
-            _producerCreationLock.Release();
-        }
+            Task<nint> callTask;
+            unsafe
+            {
+                fixed (byte* tp = topicBytes)
+                {
+                    var topicAddr = (nint)tp;
+                    callTask = Callbacks.CallAsync(tcb =>
+                    {
+                        unsafe
+                        {
+                            Native.ProducerNew(ch, (byte*)topicAddr, (nuint)topicBytes.Length, useExplicitPartitioning, cancelHandle, tcb);
+                        }
+                    });
+                }
+            }
+            return await callTask.ConfigureAwait(false);
+        }).ConfigureAwait(false);
+
+        return new RustResource(resultPtr, Native.ProducerDrop);
     }
 
     /// <summary>
@@ -246,15 +272,35 @@ internal sealed class FluvioProducer : IFluvioProducer
     /// </summary>
     public async ValueTask DisposeAsync()
     {
-        if (_disposed)
+        List<Task<RustResource>> handleTasks;
+        lock (_handlesLock)
         {
-            return;
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            handleTasks = [.. _producerHandleTasksByTopic.Values];
         }
 
-        _disposed = true;
-
-        foreach (var handle in _producerHandlesByTopic.Values)
+        // Awaiting every tracked creation task here (not just already-completed handles) is what
+        // closes the race: a SendAsync that acquired _handlesLock and registered its creation task
+        // BEFORE this method flipped _disposed is guaranteed to be in handleTasks, so its handle is
+        // always flushed and disposed rather than leaked. A creation that fails/is cancelled after
+        // this snapshot just throws here, which is fine - there is no handle to clean up for it.
+        foreach (var handleTask in handleTasks)
         {
+            RustResource handle;
+            try
+            {
+                handle = await handleTask.ConfigureAwait(false);
+            }
+            catch
+            {
+                continue;
+            }
+
             try
             {
                 var (cancelHandle, registration) = CancellationBridge.Create(CancellationToken.None);
@@ -269,7 +315,5 @@ internal sealed class FluvioProducer : IFluvioProducer
 
             handle.Dispose();
         }
-
-        _producerCreationLock.Dispose();
     }
 }
