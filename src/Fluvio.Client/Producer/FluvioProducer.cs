@@ -22,9 +22,17 @@ internal sealed class FluvioProducer : IFluvioProducer
     private bool _disposed;
 
     /// <summary>
-    /// Timeout applied to every send/flush call via <see cref="CreateSendTimeoutSource"/>.
+    /// Default timeout applied via <see cref="CreateSendTimeoutSource"/> when no
+    /// <see cref="ProducerOptions.Timeout"/> is available (e.g. a caller invoking the static helper
+    /// directly). Instance methods use <see cref="EffectiveSendTimeout"/> instead.
     /// </summary>
     internal static readonly TimeSpan SendTimeout = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// The timeout this producer instance actually applies to send/flush calls -
+    /// <see cref="ProducerOptions.Timeout"/>, not the static <see cref="SendTimeout"/> default.
+    /// </summary>
+    internal TimeSpan EffectiveSendTimeout => _options.Timeout;
 
     /// <summary>
     /// Links <paramref name="callerToken"/> with <paramref name="timeout"/> (30s by default via
@@ -76,8 +84,8 @@ internal sealed class FluvioProducer : IFluvioProducer
 
         try
         {
-            using var timeoutCts = CreateSendTimeoutSource(cancellationToken);
-            var producerHandle = await GetOrCreateProducerHandleAsync(topic, timeoutCts.Token).ConfigureAwait(false);
+            using var timeoutCts = CreateSendTimeoutSource(cancellationToken, EffectiveSendTimeout);
+            var producerHandle = await GetOrCreateProducerHandleAsync(topic).WaitAsync(timeoutCts.Token).ConfigureAwait(false);
             var valueArray = value.ToArray();
             var keyArray = key?.ToArray();
 
@@ -168,7 +176,7 @@ internal sealed class FluvioProducer : IFluvioProducer
         foreach (var handleTask in handleTasks)
         {
             var handle = await handleTask.ConfigureAwait(false);
-            using var timeoutCts = CreateSendTimeoutSource(cancellationToken);
+            using var timeoutCts = CreateSendTimeoutSource(cancellationToken, EffectiveSendTimeout);
             var (cancelHandle, registration) = CancellationBridge.Create(timeoutCts.Token);
             using var _ = registration;
             await handle.RunAsyncWithIncrement(h =>
@@ -199,7 +207,14 @@ internal sealed class FluvioProducer : IFluvioProducer
         _partitionCounts[topic] = partitionCount;
     }
 
-    private Task<RustResource> GetOrCreateProducerHandleAsync(string topic, CancellationToken cancellationToken)
+    /// <summary>
+    /// Returns the shared, per-topic producer-creation task, creating it if absent. The task is
+    /// created with <see cref="CancellationToken.None"/> regardless of which caller triggers it:
+    /// it is shared by every concurrent <see cref="SendAsync"/> call for the same topic, so no
+    /// individual caller's token may cancel it out from under the others. Each caller applies its
+    /// own cancellation/timeout by wrapping the returned task in <c>WaitAsync</c> instead.
+    /// </summary>
+    private Task<RustResource> GetOrCreateProducerHandleAsync(string topic)
     {
         lock (_handlesLock)
         {
@@ -213,7 +228,7 @@ internal sealed class FluvioProducer : IFluvioProducer
                 return existingTask;
             }
 
-            var creationTask = CreateProducerHandleAsync(topic, cancellationToken);
+            var creationTask = CreateProducerHandleAsync(topic, CancellationToken.None);
             _producerHandleTasksByTopic[topic] = creationTask;
 
             // A failed/cancelled creation must not permanently poison this topic — remove it so the
@@ -303,7 +318,11 @@ internal sealed class FluvioProducer : IFluvioProducer
 
             try
             {
-                var (cancelHandle, registration) = CancellationBridge.Create(CancellationToken.None);
+                // A bounded timeout, not CancellationToken.None: DisposeAsync has no caller token to
+                // link, but an untimed flush against a stalled native call would hang DisposeAsync
+                // forever instead of completing disposal.
+                using var timeoutCts = CreateSendTimeoutSource(CancellationToken.None, EffectiveSendTimeout);
+                var (cancelHandle, registration) = CancellationBridge.Create(timeoutCts.Token);
                 using var _ = registration;
                 await handle.RunAsyncWithIncrement(h =>
                     Callbacks.CallAsync(tcb => Native.ProducerFlush(h, cancelHandle, tcb))).ConfigureAwait(false);

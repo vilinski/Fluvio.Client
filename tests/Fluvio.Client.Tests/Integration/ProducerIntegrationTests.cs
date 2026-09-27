@@ -248,4 +248,39 @@ public class ProducerIntegrationTests : FluvioIntegrationTestBase
             await CleanupTopicAsync(topic);
         }
     }
+
+    [Fact]
+    public async Task SendAsync_ConcurrentCallersSameTopic_OneCancelledUpFront_DoesNotCancelTheOthers()
+    {
+        // Important regression: GetOrCreateProducerHandleAsync used to create the shared, per-topic
+        // producer-creation task using whichever caller happened to be first's own linked
+        // timeout/cancellation token. A second concurrent SendAsync call for the same (not-yet-
+        // created) topic awaits that SAME task, so the first caller's cancellation used to cancel
+        // the second caller too, even though the second caller's own token was never cancelled.
+        //
+        // Both calls are started (not awaited) back-to-back on the same thread: SendAsync runs
+        // synchronously up to its first real await (inside CreateProducerHandleAsync's native call),
+        // so by the time the second SendAsync call runs, the first has already registered the
+        // shared creation task in the topic dictionary - making which task the second call observes
+        // deterministic, not a timing race.
+        var topic = await CreateTestTopicAsync();
+        try
+        {
+            var producer = Client!.Producer();
+            using var preCancelledCts = new CancellationTokenSource();
+            preCancelledCts.Cancel();
+
+            var cancelledTask = producer.SendAsync(topic, new byte[] { 1 }, cancellationToken: preCancelledCts.Token);
+            var healthyTask = producer.SendAsync(topic, new byte[] { 2 });
+
+            await Assert.ThrowsAsync<TaskCanceledException>(() => cancelledTask);
+
+            var offset = await healthyTask; // must NOT be cancelled by the other caller's token
+            Assert.True(offset >= 0);
+        }
+        finally
+        {
+            await CleanupTopicAsync(topic);
+        }
+    }
 }
