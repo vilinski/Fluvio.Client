@@ -52,6 +52,7 @@ For a full walkthrough (topics, batching, offsets, JSON payloads, error handling
 
 - [Getting Started](docs/getting-started.md) - installation, configuration, and usage guide
 - [Architecture](docs/architecture.md) - the FFI layer and async/cancellation design
+- [Benchmarks](docs/benchmarks.md) - producer/consumer throughput, local and over a real remote cluster
 - [Integration Testing](docs/integration-testing.md) - running the test suite locally and in CI
 - [Publishing](docs/publishing.md) - packaging and releasing to NuGet
 - [Production Readiness](docs/production-readiness.md) - ⚠️ predates this FFI rewrite, kept for
