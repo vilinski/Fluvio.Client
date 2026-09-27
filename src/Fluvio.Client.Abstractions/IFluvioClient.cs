@@ -44,15 +44,7 @@ public interface IFluvioClient : IAsyncDisposable
 /// <param name="ConnectionTimeout">Maximum time to wait for connection establishment. Defaults to 30 seconds.</param>
 /// <param name="RequestTimeout">Maximum time to wait for request completion. Defaults to 60 seconds.</param>
 /// <param name="LoggerFactory">Logger factory for creating loggers. If not provided, logging is disabled.</param>
-/// <param name="MaxRetries">Maximum number of retry attempts for failed operations. Defaults to 3.</param>
-/// <param name="RetryBaseDelay">Base delay for exponential backoff retry strategy. Defaults to 100ms.</param>
-/// <param name="EnableCircuitBreaker">Whether to enable circuit breaker pattern. When enabled, repeated failures will open the circuit. Defaults to true.</param>
-/// <param name="CircuitBreakerFailureThreshold">Number of consecutive failures before opening the circuit breaker. Defaults to 5.</param>
-/// <param name="CircuitBreakerDuration">How long the circuit breaker stays open before attempting recovery. Defaults to 30 seconds.</param>
 /// <param name="EnableMetrics">Whether to enable metrics collection via System.Diagnostics.Metrics for OpenTelemetry integration. Defaults to true.</param>
-/// <param name="EnableAutoReconnect">Whether to enable automatic reconnection on connection failure. Defaults to true.</param>
-/// <param name="MaxReconnectAttempts">Maximum number of reconnection attempts before marking connection as failed. Defaults to 5.</param>
-/// <param name="ReconnectDelay">Base delay between reconnection attempts (uses exponential backoff). Defaults to 2 seconds.</param>
 /// <param name="TimeProvider">Time provider for testability. If not provided, uses TimeProvider.System.</param>
 /// <remarks>
 /// All parameters are optional. Configuration resolution order:
@@ -61,6 +53,9 @@ public interface IFluvioClient : IAsyncDisposable
 /// <item>Active profile from ~/.fluvio/config</item>
 /// <item>Sensible defaults</item>
 /// </list>
+/// Retry, circuit-breaker, and reconnection behavior are handled entirely by the native
+/// <c>fluvio</c> client/connection layer, not by a C#-level wrapper (per the FFI rewrite's design) -
+/// there are deliberately no options here for them.
 /// </remarks>
 public record FluvioClientOptions(
     string? SpuEndpoint = null,
@@ -71,15 +66,7 @@ public record FluvioClientOptions(
     TimeSpan ConnectionTimeout = default,
     TimeSpan RequestTimeout = default,
     ILoggerFactory? LoggerFactory = null,
-    int MaxRetries = 3,
-    TimeSpan RetryBaseDelay = default,
-    bool EnableCircuitBreaker = true,
-    int CircuitBreakerFailureThreshold = 5,
-    TimeSpan CircuitBreakerDuration = default,
     bool EnableMetrics = true,
-    bool EnableAutoReconnect = true,
-    int MaxReconnectAttempts = 5,
-    TimeSpan ReconnectDelay = default,
     TimeProvider? TimeProvider = null)
 {
     /// <summary>
@@ -123,61 +110,11 @@ public record FluvioClientOptions(
     public ILoggerFactory? LoggerFactory { get; init; } = LoggerFactory;
 
     /// <summary>
-    /// Gets the maximum number of retry attempts for failed operations.
-    /// Default is 3 retries.
-    /// </summary>
-    public int MaxRetries { get; init; } = MaxRetries <= 0 ? 3 : MaxRetries;
-
-    /// <summary>
-    /// Gets the base delay for exponential backoff retry strategy.
-    /// Default is 100ms.
-    /// </summary>
-    public TimeSpan RetryBaseDelay { get; init; } = RetryBaseDelay == default ? TimeSpan.FromMilliseconds(100) : RetryBaseDelay;
-
-    /// <summary>
-    /// Gets whether circuit breaker pattern is enabled.
-    /// When enabled, repeated failures will open the circuit and prevent further attempts until recovery.
-    /// Default is true.
-    /// </summary>
-    public bool EnableCircuitBreaker { get; init; } = EnableCircuitBreaker;
-
-    /// <summary>
-    /// Gets the number of consecutive failures before opening the circuit breaker.
-    /// Default is 5 failures.
-    /// </summary>
-    public int CircuitBreakerFailureThreshold { get; init; } = CircuitBreakerFailureThreshold <= 0 ? 5 : CircuitBreakerFailureThreshold;
-
-    /// <summary>
-    /// Gets how long the circuit breaker stays open before attempting recovery.
-    /// Default is 30 seconds.
-    /// </summary>
-    public TimeSpan CircuitBreakerDuration { get; init; } = CircuitBreakerDuration == default ? TimeSpan.FromSeconds(30) : CircuitBreakerDuration;
-
-    /// <summary>
     /// Gets whether metrics collection is enabled.
     /// When enabled, the client will emit metrics via System.Diagnostics.Metrics for OpenTelemetry integration.
     /// Default is true.
     /// </summary>
     public bool EnableMetrics { get; init; } = EnableMetrics;
-
-    /// <summary>
-    /// Gets whether automatic reconnection is enabled.
-    /// When enabled, connections will automatically attempt to reconnect on failure.
-    /// Default is true.
-    /// </summary>
-    public bool EnableAutoReconnect { get; init; } = EnableAutoReconnect;
-
-    /// <summary>
-    /// Gets the maximum number of reconnection attempts before marking connection as failed.
-    /// Default is 5 attempts.
-    /// </summary>
-    public int MaxReconnectAttempts { get; init; } = MaxReconnectAttempts <= 0 ? 5 : MaxReconnectAttempts;
-
-    /// <summary>
-    /// Gets the base delay between reconnection attempts (uses exponential backoff).
-    /// Default is 2 seconds.
-    /// </summary>
-    public TimeSpan ReconnectDelay { get; init; } = ReconnectDelay == default ? TimeSpan.FromSeconds(2) : ReconnectDelay;
 
     /// <summary>
     /// Gets the time provider for testability.

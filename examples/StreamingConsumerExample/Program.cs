@@ -37,7 +37,7 @@ class Program
         {
             await admin.CreateTopicAsync(topic, new TopicSpec(Partitions: 1, ReplicationFactor: 1));
         }
-        catch (FluvioException ex) when (ex.Message.Contains("AlreadyExists"))
+        catch (TopicAlreadyExistsException)
         {
             Console.WriteLine("Topic already exists");
         }
