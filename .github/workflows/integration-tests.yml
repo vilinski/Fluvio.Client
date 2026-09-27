@@ -34,7 +34,10 @@ jobs:
     timeout-minutes: 20
     env:
       FLUVIO_TEST_PROFILE: hetzner-tls
-      FLV_PROFILE_PATH: ${{ runner.temp }}/fluvio-config.toml
+      # A literal path, not `${{ runner.temp }}/...`: the `runner` context is only available within
+      # steps, not in a job-level `env:` block (GitHub Actions rejects the workflow otherwise:
+      # "Unrecognized named-value: 'runner'"). Safe as a literal since runs-on is fixed to ubuntu-latest.
+      FLV_PROFILE_PATH: /tmp/fluvio-config.toml
 
     steps:
     - uses: actions/checkout@v4
