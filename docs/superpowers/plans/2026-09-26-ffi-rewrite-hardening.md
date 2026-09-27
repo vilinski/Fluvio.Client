@@ -1271,7 +1271,7 @@ git commit -m "test: replace hanging unbounded-stream partitioner tests with bou
 - Consumes: nothing new.
 - Produces: no change to any public signature — pure bug fixes.
 
-- [ ] **Step 1: Fix the allocation leak in `ffi_consumer_fetch_batch`**
+- [x] **Step 1: Fix the allocation leak in `ffi_consumer_fetch_batch`**
 
 In the loop that accumulates `out: Vec<*mut c_void>` via `box_record`, if the loop exits via an error AFTER some records were already boxed, free those before returning the error:
 
@@ -1283,7 +1283,7 @@ for ptr in out.drain(..) {
 ```
 Apply the same pattern anywhere else records are boxed before a possible later failure in the same function (check `ffi_stream_next` too, though it boxes only one record at a time so the leak surface there is narrower — confirm and fix if present).
 
-- [ ] **Step 2: Write a regression test for `IgnoreRackAssignment`**
+- [x] **Step 2: Write a regression test for `IgnoreRackAssignment`**
 
 ```csharp
 // tests/Fluvio.Client.Tests/Integration/AdminIntegrationTests.cs — add
@@ -1300,7 +1300,7 @@ public async Task CreateTopicAsync_WithIgnoreRackAssignment_DoesNotThrow()
 
 (This is a smoke test since a single-node dev cluster can't easily prove rack-assignment was actually skipped vs. irrelevant — the point is the flag reaches native and round-trips without error; if the real `fluvio` admin API surfaces the value back in topic metadata, assert on that instead.)
 
-- [ ] **Step 3: Wire `IgnoreRackAssignment` through**
+- [x] **Step 3: Wire `IgnoreRackAssignment` through**
 
 ```csharp
 // FluvioAdmin.cs — BuildTopicSpecJson
@@ -1314,13 +1314,13 @@ let spec = TopicSpec::new_computed(partitions, replication, if ignore_rack { Som
 ```
 (Adjust to whatever `TopicSpec::new_computed`'s actual third-parameter semantics are, per the original Task 6's own note that this needed checking against `cargo doc`.)
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `cd native/fluvio-dotnet && cargo build && cargo test && cd -`
 Run: `FLUVIO_TEST_PROFILE=local dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~AdminIntegrationTests|FullyQualifiedName~ConsumerIntegrationTests"`
 Expected: pass, including the new `IgnoreRackAssignment` test.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add native/fluvio-dotnet/src/consumer.rs native/fluvio-dotnet/src/admin.rs src/Fluvio.Client/Admin/FluvioAdmin.cs tests/Fluvio.Client.Tests/Integration/AdminIntegrationTests.cs
