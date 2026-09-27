@@ -1064,11 +1064,11 @@ git commit -m "feat: honor IPartitioner/ProducerOptions.Partitioner by sending t
 - Consumes: nothing new.
 - Produces: `FluvioProducer` tracks in-flight handle-creation `Task`s (not just completed handles) so `DisposeAsync`/`FlushAsync` can await any creation still in progress before acting, and marks itself "sealed" atomically so a creation that races a concurrent `Dispose` either completes and is immediately disposed, or is rejected before starting — never leaves a handle created-but-untracked.
 
-- [ ] **Step 1: Read the current implementation and confirm the race**
+- [x] **Step 1: Read the current implementation and confirm the race**
 
 Read `FluvioProducer.cs`'s `GetOrCreateProducerHandleAsync`, `DisposeAsync`, and `FlushAsync` in full. Confirm the handoff note's diagnosis: `DisposeAsync` can mark disposed / snapshot the (possibly still-empty) handle dictionary / dispose `_producerCreationLock` while a concurrent `GetOrCreateProducerHandleAsync` is mid-flight and later publishes a handle into a disposed structure.
 
-- [ ] **Step 2: Write the failing stress test**
+- [x] **Step 2: Write the failing stress test**
 
 ```csharp
 // tests/Fluvio.Client.Tests/Integration/BatchFlushIntegrationTests.cs — add
@@ -1098,26 +1098,26 @@ public async Task ConcurrentSendAndDispose_DoesNotHangOrThrowUnexpectedly()
 }
 ```
 
-- [ ] **Step 3: Run to confirm it's flaky/fails/hangs**
+- [x] **Step 3: Run to confirm it's flaky/fails/hangs**
 
 Run: `FLUVIO_TEST_PROFILE=local dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~ConcurrentSendAndDispose"` (repeat 5-10 times — races are often intermittent)
 Expected: fails or hangs at least once across repeated runs.
 
-- [ ] **Step 4: Fix the race**
+- [x] **Step 4: Fix the race**
 
 Restructure `FluvioProducer`'s handle lifecycle: use a single `SemaphoreSlim` (or a lock) guarding a `Dictionary<string, Task<RustResource>>` (not `Dictionary<string, RustResource>`) so `GetOrCreateProducerHandleAsync` always awaits the SAME in-flight creation `Task` rather than racing a fresh one; add a `_disposed` flag checked under the same lock before starting a new creation, and have `DisposeAsync` await all currently-tracked creation `Task`s (not just completed handles) before disposing each one, then dispose the lock/semaphore last.
 
-- [ ] **Step 5: Run the stress test repeatedly to confirm the fix**
+- [x] **Step 5: Run the stress test repeatedly to confirm the fix**
 
 Run: `for i in {1..10}; do FLUVIO_TEST_PROFILE=local dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~ConcurrentSendAndDispose" --configuration Release || break; done`
 Expected: 10/10 passes, no hangs.
 
-- [ ] **Step 6: Run against `hetzner-tls`**
+- [x] **Step 6: Run against `hetzner-tls`**
 
 Run: `FLUVIO_TEST_PROFILE=hetzner-tls dotnet test tests/Fluvio.Client.Tests --filter "FullyQualifiedName~ConcurrentSendAndDispose"`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/Fluvio.Client/Producer/FluvioProducer.cs tests/Fluvio.Client.Tests/Integration/BatchFlushIntegrationTests.cs
