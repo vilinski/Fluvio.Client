@@ -33,6 +33,7 @@
 ## File Structure
 
 **New Rust crate — `native/fluvio-dotnet/`:**
+
 - `Cargo.toml` — crate manifest (cdylib, `fluvio_dotnet`)
 - `src/lib.rs` — module wiring, `ffi_runtime_init`, top-level re-exports
 - `src/runtime.rs` — global Tokio runtime singleton
@@ -45,6 +46,7 @@
 - `src/admin.rs` — topic/SPU/partition/SmartModule CRUD FFI
 
 **New C# interop layer — `src/Fluvio.Client/Interop/`:**
+
 - `NativeTypes.cs` — `Tcb`, `FFISlice`, `FFIString` struct mirrors + size asserts
 - `Native.cs` — `[LibraryImport]` P/Invoke declarations + native library resolution
 - `Callbacks.cs` — TCB↔`Task` bridge (`CallAsync`, `[UnmanagedCallersOnly]` targets)
@@ -52,6 +54,7 @@
 - `NativeBuffer.cs` — `SafeHandle` for `FFIRecord*` + zero-copy `MemoryManager<byte>`
 
 **Modified (rewritten internals, same public API):**
+
 - `src/Fluvio.Client/FluvioClient.cs`
 - `src/Fluvio.Client/Producer/FluvioProducer.cs`
 - `src/Fluvio.Client/Consumer/FluvioConsumer.cs`
@@ -62,6 +65,7 @@
 - `.github/workflows/build.yml`, `.github/workflows/integration-tests.yml` (native build steps)
 
 **Deleted:**
+
 - `src/Fluvio.Client/Protocol/**`
 - `src/Fluvio.Client/Network/FluvioConnection.cs`
 - `src/Fluvio.Client/Compression/CompressionUtils.cs`
@@ -77,6 +81,7 @@
 ### Task 1: Rust FFI core infrastructure (runtime, TCB, types, errors)
 
 **Files:**
+
 - Create: `native/fluvio-dotnet/Cargo.toml`
 - Create: `native/fluvio-dotnet/src/lib.rs`
 - Create: `native/fluvio-dotnet/src/runtime.rs`
@@ -85,6 +90,7 @@
 - Create: `native/fluvio-dotnet/src/error.rs`
 
 **Interfaces:**
+
 - Produces: `runtime::runtime() -> &'static tokio::runtime::Runtime`; `tcb::Tcb { tcs: *mut c_void, on_success: *mut c_void, on_failure: *mut c_void }` plus `unsafe fn complete_success(tcb: Tcb, result: *mut c_void)`, `unsafe fn complete_failure(tcb: Tcb, code: i32, msg: String)`, `unsafe fn complete_error(tcb: Tcb, e: anyhow::Error)`, `unsafe fn complete_string_success(tcb: Tcb, s: String)`; `ffi_types::{FFISlice, FFIString, FFIBool, FFIRecord}`; `error::codes::{GENERIC, CONNECTION, TOPIC_NOT_FOUND, TOPIC_ALREADY_EXISTS, CANCELLED, INVALID_ARGUMENT, UNAUTHORIZED}`; `error::to_ffi(&anyhow::Error) -> (i32, String)`; exported `#[no_mangle] extern "C" fn ffi_runtime_init() -> i32`.
 - Consumed by: Tasks 2–6 (every module spawns onto `runtime::runtime()` and completes via `tcb::complete_*`).
 
@@ -411,6 +417,7 @@ git commit -m "feat: scaffold Rust FFI crate with runtime, TCB, types, error inf
 ### Task 2: Client connect/health-check FFI + C# interop bridge + `FluvioClient` rewrite
 
 **Files:**
+
 - Create: `native/fluvio-dotnet/src/client.rs`
 - Modify: `native/fluvio-dotnet/src/lib.rs`
 - Create: `src/Fluvio.Client/Interop/NativeTypes.cs`
@@ -422,6 +429,7 @@ git commit -m "feat: scaffold Rust FFI crate with runtime, TCB, types, error inf
 - Test: `tests/Fluvio.Client.Tests/Integration/ConnectionIntegrationTests.cs` (existing file, exercised as-is against a real cluster)
 
 **Interfaces:**
+
 - Consumes: `runtime::runtime()`, `tcb::{Tcb, complete_success, complete_error, complete_string_success}`, `error::codes::*` from Task 1.
 - Produces (Rust extern fns): `ffi_client_connect(config_json: *const u8, config_json_len: usize, tcb: Tcb)` → success payload is the boxed `fluvio::Fluvio` handle pointer; `ffi_client_health_check(client: *mut c_void, tcb: Tcb)` → success payload is a leaked JSON `CString` (`{"is_healthy":bool,"spu_connected":bool,...}`); `ffi_client_drop(client: *mut c_void)`.
 - Produces (C#): `RustResource : SafeHandle` with `RunWithIncrement<T>(Func<nint,T>)` / `RunAsyncWithIncrement<T>(Func<nint,Task<T>>)`; `Callbacks.CallAsync(Action<Tcb> invoke) -> Task<nint>`; `Native.ClientConnect`, `Native.ClientHealthCheck`, `Native.ClientDrop`, `Native.ReadAndFreeString(nint)`; `FluvioException.FromCode(int code, string? message)`.
@@ -807,6 +815,7 @@ git commit -m "feat: add client connect/health-check FFI and native interop brid
 ### Task 3: Producer FFI + `FluvioProducer` rewrite
 
 **Files:**
+
 - Create: `native/fluvio-dotnet/src/producer.rs`
 - Modify: `native/fluvio-dotnet/src/lib.rs`
 - Modify: `src/Fluvio.Client/Interop/Native.cs` (add producer entry points)
@@ -814,6 +823,7 @@ git commit -m "feat: add client connect/health-check FFI and native interop brid
 - Test: `tests/Fluvio.Client.Tests/Integration/ProducerIntegrationTests.cs`, `tests/Fluvio.Client.Tests/Integration/BatchFlushIntegrationTests.cs` (existing, exercised as-is)
 
 **Interfaces:**
+
 - Consumes: `Tcb`, `complete_success`/`complete_error` (Task 1); `Fluvio` client pointer, `RustResource`, `Callbacks.CallAsync` (Task 2).
 - Produces (Rust): `ffi_producer_new(client: *mut c_void, topic: *const u8, topic_len: usize, tcb: Tcb)` → boxed `TopicProducer` pointer; `ffi_producer_send(producer: *mut c_void, key: *const u8, key_len: usize, value: *const u8, value_len: usize, tcb: Tcb)` → success payload is the offset as `i64` bit-cast into the pointer word; `ffi_producer_flush(producer: *mut c_void, tcb: Tcb)`; `ffi_producer_drop(producer: *mut c_void)`.
 - Produces (C#): `Native.ProducerNew/ProducerSend/ProducerFlush/ProducerDrop`.
@@ -968,6 +978,7 @@ git commit -m "feat: replace producer wire protocol with FFI-backed send/flush"
 ### Task 4: Consumer fetch/offset FFI (non-streaming) + `FluvioConsumer` rewrite
 
 **Files:**
+
 - Create: `native/fluvio-dotnet/src/consumer.rs` (fetch/offset portion only — streaming added in Task 5)
 - Modify: `native/fluvio-dotnet/src/lib.rs`
 - Modify: `src/Fluvio.Client/Interop/Native.cs`
@@ -976,6 +987,7 @@ git commit -m "feat: replace producer wire protocol with FFI-backed send/flush"
 - Test: `tests/Fluvio.Client.Tests/Integration/ConsumerIntegrationTests.cs` (existing; update any call site still passing `sessionId`)
 
 **Interfaces:**
+
 - Consumes: Task 1's `Tcb`/error helpers, Task 2's client pointer/`RustResource`/`Callbacks.CallAsync`, Task 1's `FFIRecord`/`ffi_types::box_record`.
 - Produces (Rust): `ffi_consumer_fetch_batch(client, topic, topic_len, partition: u32, offset: i64, max_bytes: u32, tcb)` → success payload is a boxed `Vec<*mut c_void>` header (see Step 1) of `FFIRecord*`; `ffi_consumer_fetch_last_offset(client, consumer_id, consumer_id_len, topic, topic_len, partition: u32, tcb)` → offset as `i64` in the pointer word, or a sentinel `-1` for "no stored offset"; `ffi_consumer_commit_offset(client, consumer_id, consumer_id_len, topic, topic_len, partition: u32, offset: i64, tcb)`.
 - Produces (C#): `Native.ConsumerFetchBatch/ConsumerFetchLastOffset/ConsumerCommitOffset`; updated `IFluvioConsumer.CommitOffsetAsync(string, string, int, long, CancellationToken)`.
@@ -1212,6 +1224,7 @@ git commit -m "feat: replace consumer fetch/offset wire protocol with FFI"
 ### Task 5: Consumer streaming FFI (`StreamAsync`) + delete `StreamingConsumer.cs`
 
 **Files:**
+
 - Modify: `native/fluvio-dotnet/src/consumer.rs` (append streaming)
 - Create: `src/Fluvio.Client/Interop/NativeBuffer.cs`
 - Modify: `src/Fluvio.Client/Interop/Native.cs`
@@ -1220,6 +1233,7 @@ git commit -m "feat: replace consumer fetch/offset wire protocol with FFI"
 - Test: `tests/Fluvio.Client.Tests/Integration/ConsumerIntegrationTests.cs`, `tests/Fluvio.Client.Tests/Integration/StreamingConsumerTests.cs` (if present under a different name — confirm via `grep -rl StreamAsync tests/Fluvio.Client.Tests/Integration`)
 
 **Interfaces:**
+
 - Consumes: Task 1's `FFIRecord`/`box_record`, Task 4's `Fluvio`/`Offset` usage pattern.
 - Produces (Rust): `ffi_stream_new(client, topic, topic_len, partition: u32, offset: i64, tcb)` → boxed `StreamHandle { inner: Arc<Mutex<Option<Pin<Box<dyn Stream<...>>>>>>, cancel: Arc<Notify> }` pointer; `ffi_stream_next(stream: *mut c_void, tcb)` → `FFIRecord*` or `null` (EOF); `ffi_stream_close(stream: *mut c_void)`; `ffi_stream_drop(stream: *mut c_void)`.
 - Produces (C#): `NativeBuffer : SafeHandle` wrapping an `FFIRecord*` with zero-copy `ReadOnlyMemory<byte>` accessors; `Native.StreamNew/StreamNext/StreamClose/StreamDrop`; `FluvioConsumer.StreamAsync` as a custom `IAsyncEnumerable<ConsumeRecord>`.
@@ -1510,6 +1524,7 @@ git commit -m "feat: replace consumer streaming with pull-based FFI stream"
 ### Task 6: Admin FFI (topics, SPUs, partitions, SmartModules) + `FluvioAdmin` rewrite
 
 **Files:**
+
 - Create: `native/fluvio-dotnet/src/admin.rs`
 - Modify: `native/fluvio-dotnet/src/lib.rs`
 - Modify: `src/Fluvio.Client/Interop/Native.cs`
@@ -1518,6 +1533,7 @@ git commit -m "feat: replace consumer streaming with pull-based FFI stream"
 - Test: `tests/Fluvio.Client.Tests/Integration/AdminIntegrationTests.cs`, `tests/Fluvio.Client.Tests/Integration/AdminBasicTest.cs` (existing, exercised as-is)
 
 **Interfaces:**
+
 - Consumes: Task 1's `Tcb`/error helpers/`complete_string_success`, Task 2's client pointer/`RustResource`/`Callbacks.CallAsync`/`Native.ReadAndFreeString`.
 - Produces (Rust): `ffi_admin_create_topic(client, name, name_len, spec_json, spec_json_len, tcb)`; `ffi_admin_delete_topic(client, name, name_len, tcb)`; `ffi_admin_list_topics(client, tcb)` → JSON array string; `ffi_admin_get_topic(client, name, name_len, tcb)` → JSON object string or null; `ffi_admin_list_spus(client, tcb)`; `ffi_admin_get_spu(client, spu_id: i32, tcb)`; `ffi_admin_list_partitions(client, topic_filter: *const u8, topic_filter_len: usize, tcb)`; `ffi_admin_get_partition(client, topic, topic_len, partition: u32, tcb)`; `ffi_admin_list_smartmodules(client, tcb)`; `ffi_admin_get_smartmodule(client, name, name_len, tcb)`; `ffi_admin_create_smartmodule(client, name, name_len, wasm: *const u8, wasm_len, tcb)`; `ffi_admin_delete_smartmodule(client, name, name_len, tcb)`.
 - Produces (C#): `Native.Admin*` entry points; `FluvioAdmin` methods unchanged in signature, backed by JSON deserialization of the string payloads into the existing `Fluvio.Client.Abstractions` DTOs (`TopicMetadata`, `SpuMetadata`, `PartitionDetail`, `SmartModuleMetadata`).
@@ -1763,6 +1779,7 @@ git commit -m "feat: replace admin wire protocol with FFI-backed topic/SPU/parti
 ### Task 7: Delete obsolete managed transport code and unused dependencies
 
 **Files:**
+
 - Delete: `src/Fluvio.Client/Protocol/**`
 - Delete: `src/Fluvio.Client/Network/FluvioConnection.cs`
 - Delete: `src/Fluvio.Client/Compression/CompressionUtils.cs`
@@ -1777,6 +1794,7 @@ git commit -m "feat: replace admin wire protocol with FFI-backed topic/SPU/parti
 - Modify: `Fluvio.Client.sln` (remove references to deleted projects, if present)
 
 **Interfaces:**
+
 - Consumes: nothing new — this task only removes code made dead by Tasks 2–6.
 - Produces: a clean build with no unused-dependency warnings.
 
@@ -1827,11 +1845,13 @@ git commit -m "chore: remove obsolete managed wire-protocol code and unused depe
 ### Task 8: Native library packaging (MSBuild targets + resolver hardening)
 
 **Files:**
+
 - Modify: `src/Fluvio.Client/Fluvio.Client.csproj`
 - Modify: `src/Fluvio.Client/Interop/Native.cs` (resolver error message / RID mapping already added in Task 2 — extend for packaged-app lookup)
 - Test: manual verification steps below (packaging targets aren't unit-testable in isolation)
 
 **Interfaces:**
+
 - Consumes: `native/fluvio-dotnet` crate from Task 1 (built per-RID).
 - Produces: `dotnet build` auto-builds the native crate in debug mode; `dotnet pack -p:RuntimeIdentifier=<rid>` produces a NuGet package containing `runtimes/<rid>/native/<libname>`.
 
@@ -1902,10 +1922,12 @@ git commit -m "feat: add native library build/pack MSBuild targets"
 ### Task 9: CI workflow updates for native builds
 
 **Files:**
+
 - Modify: `.github/workflows/build.yml`
 - Modify: `.github/workflows/integration-tests.yml`
 
 **Interfaces:**
+
 - Consumes: Task 8's MSBuild targets, Task 1's `native/fluvio-dotnet` crate.
 - Produces: green CI on a fresh clone/PR.
 

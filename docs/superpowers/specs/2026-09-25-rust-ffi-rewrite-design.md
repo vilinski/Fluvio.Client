@@ -81,6 +81,7 @@ No `bindgen`, `cbindgen`, `interoptopus`, or any other FFI-codegen crate.
 `CLAUDE.md`'s "Code Generation" section — see Documentation below.)
 
 Modules, mirroring the reference repo's layout:
+
 - `runtime.rs` — global `Lazy<tokio::runtime::Runtime>` singleton (`rt-multi-thread`),
   plus `ffi_runtime_init() -> i32` for deterministic eager init from C#.
 - `tcb.rs` — `Tcb` struct + `complete_success`/`complete_failure`/`complete_error`

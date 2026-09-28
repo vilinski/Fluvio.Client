@@ -20,7 +20,7 @@ Environment: Apple M1 Max, macOS 27.0, .NET 8.0.20, `BenchmarkDotNet v0.15.7`.
 ## Producer
 
 | Benchmark | This client, local | This client, hetzner-tls | flash, local |
-|---|---:|---:|---:|
+| --- | ---: | ---: | ---: |
 | Single small message (14 B) | 181.6 µs | 29.17 ms | — |
 | Single medium message (1 KB) | 184.1 µs | 31.14 ms | — |
 | Single large message (10 KB) | 204.8 µs | 73.54 ms | — |
@@ -45,7 +45,7 @@ local numbers.
 ## Consumer
 
 | Benchmark | This client, local | This client, hetzner-tls |
-|---|---:|---:|
+| --- | ---: | ---: |
 | Streaming consumer, per message (1000 msgs) | 14.8 µs | 105 µs |
 | Fetch batch, per message (1000 msgs) | 209 µs | 263 µs |
 | Streaming consumer, per message (100 msgs) | 21.5 µs | 961 µs |

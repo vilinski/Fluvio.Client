@@ -70,6 +70,7 @@ await using var client = await FluvioClient.ConnectAsync(options);
 ```
 
 **Configuration Priority:**
+
 1. Explicitly provided options
 2. `~/.fluvio/config` (active profile or specified profile)
 3. Defaults (loads the current profile; without one, `localhost:9003` for SC, TLS off)
@@ -166,6 +167,7 @@ await producer.FlushAsync();
 ```
 
 **Producer Options:**
+
 - `BatchSize`: Number of records per batch (default: 1000)
 - `MaxRequestSize`: Max size in bytes for a single request (default: 1 MB)
 - `LingerTime`: How long to wait for more records before sending (default: 0)
@@ -188,6 +190,7 @@ await foreach (var record in consumer.StreamAsync("my-topic", partition: 0, offs
 ```
 
 **Consumer Options:**
+
 - `MaxBytes`: Maximum bytes to fetch per request (default: 1 MB)
 - `IsolationLevel`: Read committed or read uncommitted (default: ReadCommitted)
 
